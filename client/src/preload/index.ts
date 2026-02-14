@@ -62,6 +62,42 @@ type VisionSuggestionResponse = {
   suggestion: string;
 };
 
+type GalleryGeneratePayload = {
+  saveId: string;
+  prompt: string;
+};
+
+type GalleryGenerateResult = {
+  id: string;
+  status: string;
+};
+
+type GalleryItem = Record<string, unknown>;
+
+type TimelineSimulatePayload = {
+  saveId: string;
+  eventType?: string;
+  content?: string;
+};
+
+type TimelineSimulateResult = {
+  taskId: string;
+  timelineEventId?: string;
+};
+
+type TimelineEventItem = {
+  id: string;
+  saveId: string;
+  eventType: string;
+  content: string;
+  createdAt: string;
+};
+
+type TimelineListResult = {
+  items: TimelineEventItem[];
+  nextCursor: string;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
   versions: {
@@ -80,6 +116,22 @@ contextBridge.exposeInMainWorld('desktopApi', {
   vision: {
     uploadScreenshot: async (payload: VisionUploadPayload): Promise<VisionSuggestionResponse> => {
       return ipcRenderer.invoke('vision:uploadScreenshot', payload) as Promise<VisionSuggestionResponse>;
+    }
+  },
+  gallery: {
+    generate: async (payload: GalleryGeneratePayload): Promise<GalleryGenerateResult> => {
+      return ipcRenderer.invoke('gallery:generate', payload) as Promise<GalleryGenerateResult>;
+    },
+    list: async (saveId: string): Promise<GalleryItem[]> => {
+      return ipcRenderer.invoke('gallery:list', { saveId }) as Promise<GalleryItem[]>;
+    }
+  },
+  timeline: {
+    simulate: async (payload: TimelineSimulatePayload): Promise<TimelineSimulateResult> => {
+      return ipcRenderer.invoke('timeline:simulate', payload) as Promise<TimelineSimulateResult>;
+    },
+    list: async (payload: { saveId: string; cursor?: string; limit?: number }): Promise<TimelineListResult> => {
+      return ipcRenderer.invoke('timeline:list', payload) as Promise<TimelineListResult>;
     }
   },
   auth: {

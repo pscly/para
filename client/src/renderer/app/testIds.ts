@@ -23,7 +23,18 @@ export const TEST_IDS = {
   toggleAssistant: 'toggle-assistant',
   toggleAssistantIdle: 'toggle-assistant-idle',
   assistantCopyEnglish: 'assistant-copy-english',
-  assistantSuggestion: 'assistant-suggestion'
+  assistantSuggestion: 'assistant-suggestion',
+
+  galleryGenerate: 'gallery-generate',
+  galleryRefresh: 'gallery-refresh',
+  galleryMasonry: 'gallery-masonry',
+  galleryItem: 'gallery-item',
+
+  timelineCard: 'timeline-card',
+  timelineSimulate: 'timeline-simulate',
+  timelineRefresh: 'timeline-refresh',
+  timelineList: 'timeline-list',
+  timelineItem: 'timeline-item'
 } as const;
 
 export type TestIdKey = keyof typeof TEST_IDS;

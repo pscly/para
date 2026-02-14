@@ -207,6 +207,13 @@ class Save(Base):
         passive_deletes=True,
     )
 
+    gallery_items: Mapped[list["GalleryItem"]] = relationship(
+        "GalleryItem",
+        back_populates="save",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
 
 class DreamEntry(Base):
     __tablename__: str = "dream_entries"
@@ -226,6 +233,25 @@ class DreamEntry(Base):
     )
 
     save: Mapped[Save] = relationship("Save", back_populates="dream_entries")
+
+
+class TimelineEvent(Base):
+    __tablename__: str = "timeline_events"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    save_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+
+    event_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    content: Mapped[str] = mapped_column(Text(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
 
 
 class MemoryItem(Base):
@@ -345,6 +371,31 @@ class KnowledgeChunk(Base):
     )
 
     material: Mapped[KnowledgeMaterial] = relationship("KnowledgeMaterial", back_populates="chunks")
+
+
+class GalleryItem(Base):
+    __tablename__: str = "gallery_items"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    save_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("saves.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    prompt: Mapped[str] = mapped_column(Text(), nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    error: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+    storage_dir: Mapped[str] = mapped_column(Text(), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    save: Mapped[Save] = relationship("Save", back_populates="gallery_items")
 
 
 class Persona(Base):

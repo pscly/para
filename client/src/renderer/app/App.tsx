@@ -27,6 +27,25 @@ type VisionSuggestionResponse = {
   suggestion: string;
 };
 
+type GalleryItemStatus = 'pending' | 'completed' | 'failed';
+
+type GalleryItem = {
+  id: string;
+  status: GalleryItemStatus | string;
+  created_at: string;
+  prompt: string;
+  thumb_data_url?: string | null;
+  image_data_url?: string | null;
+};
+
+type TimelineEventItem = {
+  id: string;
+  saveId: string;
+  eventType: string;
+  content: string;
+  createdAt: string;
+};
+
 type DesktopApiExt = {
   saves?: {
     list: () => Promise<SaveListItem[]>;
@@ -51,6 +70,22 @@ type DesktopApiExt = {
       imageBase64: string;
       privacyMode: VisionPrivacyMode;
     }) => Promise<VisionSuggestionResponse>;
+  };
+  gallery?: {
+    generate: (payload: { saveId: string; prompt: string }) => Promise<{ id: string; status: string }>;
+    list: (saveId: string) => Promise<GalleryItem[]>;
+  };
+  timeline?: {
+    simulate: (payload: {
+      saveId: string;
+      eventType?: string;
+      content?: string;
+    }) => Promise<{ taskId: string; timelineEventId?: string }>;
+    list: (payload: {
+      saveId: string;
+      cursor?: string;
+      limit?: number;
+    }) => Promise<{ items: TimelineEventItem[]; nextCursor: string }>;
   };
   assistant?: {
     setEnabled: (enabled: boolean, saveId: string) => Promise<void>;
@@ -132,12 +167,32 @@ export function App() {
   const [assistantCategory, setAssistantCategory] = React.useState('');
   const [assistantUiError, setAssistantUiError] = React.useState('');
 
+  const [galleryPrompt, setGalleryPrompt] = React.useState('一段记忆胶囊');
+  const [galleryItems, setGalleryItems] = React.useState<GalleryItem[]>([]);
+  const [galleryBusy, setGalleryBusy] = React.useState(false);
+  const [galleryUiError, setGalleryUiError] = React.useState('');
+
+  const [timelineItems, setTimelineItems] = React.useState<TimelineEventItem[]>([]);
+  const [timelineBusy, setTimelineBusy] = React.useState(false);
+  const [timelineUiError, setTimelineUiError] = React.useState('');
+
+  const galleryPollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
+
   const feedAbortRef = React.useRef<AbortController | null>(null);
 
   const activeClientRequestIdRef = React.useRef<string | null>(null);
   const activeRequestDoneRef = React.useRef<boolean>(false);
 
   const versions = window.desktopApi?.versions;
+
+  React.useEffect(() => {
+    return () => {
+      if (galleryPollTimerRef.current) {
+        clearInterval(galleryPollTimerRef.current);
+        galleryPollTimerRef.current = null;
+      }
+    };
+  }, []);
 
   React.useEffect(() => {
     const ws = window.desktopApi?.ws;
@@ -290,6 +345,42 @@ export function App() {
     return '助手操作失败';
   }
 
+  function toReadableGalleryError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('API_FAILED')) return '请求失败';
+    if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
+    return '相册操作失败';
+  }
+
+  function toReadableTimelineError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('API_FAILED')) return '请求失败';
+    if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
+    return '时间轴操作失败';
+  }
+
+  function toGalleryStatusLabel(status: unknown): string {
+    if (status === 'pending') return '生成中';
+    if (status === 'completed') return '已完成';
+    if (status === 'failed') return '失败';
+    if (typeof status === 'string' && status.trim() !== '') return status;
+    return 'unknown';
+  }
+
+  function formatGalleryTime(raw: string | undefined): string {
+    if (!raw) return '';
+    const d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return raw;
+    const hh = String(d.getHours()).padStart(2, '0');
+    const mm = String(d.getMinutes()).padStart(2, '0');
+    const ss = String(d.getSeconds()).padStart(2, '0');
+    return `${hh}:${mm}:${ss}`;
+  }
+
   function getDesktopApiExt(): DesktopApiExt | null {
     const api = window.desktopApi as unknown;
     if (!api) return null;
@@ -324,6 +415,178 @@ export function App() {
     }
     throw new Error('ABORTED');
   }
+
+  async function refreshGalleryList(opts?: { silent?: boolean }) {
+    const api = getDesktopApiExt();
+    const gallery = api?.gallery;
+    if (!gallery) {
+      if (!opts?.silent) setGalleryUiError('相册接口不可用');
+      return;
+    }
+
+    try {
+      const list = await gallery.list(activeSaveId);
+      setGalleryItems(Array.isArray(list) ? list : []);
+      if (!opts?.silent) setGalleryUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setGalleryUiError(toReadableGalleryError(err));
+    }
+  }
+
+  async function onGalleryRefresh() {
+    if (galleryBusy) return;
+    setGalleryUiError('');
+    setGalleryBusy(true);
+    try {
+      await refreshGalleryList();
+    } finally {
+      setGalleryBusy(false);
+    }
+  }
+
+  async function onGalleryGenerate() {
+    if (galleryBusy) return;
+    setGalleryUiError('');
+
+    const prompt = galleryPrompt.trim();
+    if (!prompt) {
+      setGalleryUiError('请输入 prompt');
+      return;
+    }
+
+    const api = getDesktopApiExt();
+    const gallery = api?.gallery;
+    if (!gallery) {
+      setGalleryUiError('相册接口不可用');
+      return;
+    }
+
+    setGalleryBusy(true);
+    try {
+      const created = await gallery.generate({ saveId: activeSaveId, prompt });
+      setGalleryItems((prev) => {
+        const exists = prev.some((it) => it.id === created.id);
+        if (exists) return prev;
+        const optimistic: GalleryItem = {
+          id: created.id,
+          status: created.status || 'pending',
+          created_at: new Date().toISOString(),
+          prompt
+        };
+        return [optimistic, ...prev];
+      });
+      await refreshGalleryList({ silent: true });
+    } catch (err: unknown) {
+      setGalleryUiError(toReadableGalleryError(err));
+    } finally {
+      setGalleryBusy(false);
+    }
+  }
+
+  async function refreshTimelineList(opts?: { silent?: boolean }) {
+    const api = getDesktopApiExt();
+    const timeline = api?.timeline;
+    if (!timeline) {
+      if (!opts?.silent) setTimelineUiError('时间轴接口不可用');
+      return;
+    }
+
+    try {
+      const res = await timeline.list({ saveId: activeSaveId, cursor: '0', limit: 20 });
+      setTimelineItems(Array.isArray(res?.items) ? res.items : []);
+      if (!opts?.silent) setTimelineUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setTimelineUiError(toReadableTimelineError(err));
+    }
+  }
+
+  async function onTimelineRefresh() {
+    if (timelineBusy) return;
+    setTimelineUiError('');
+    setTimelineBusy(true);
+    try {
+      await refreshTimelineList();
+    } finally {
+      setTimelineBusy(false);
+    }
+  }
+
+  async function onTimelineSimulate() {
+    if (timelineBusy) return;
+    setTimelineUiError('');
+
+    const api = getDesktopApiExt();
+    const timeline = api?.timeline;
+    if (!timeline) {
+      setTimelineUiError('时间轴接口不可用');
+      return;
+    }
+
+    setTimelineBusy(true);
+    try {
+      await timeline.simulate({ saveId: activeSaveId });
+      await refreshTimelineList({ silent: true });
+    } catch (err: unknown) {
+      setTimelineUiError(toReadableTimelineError(err));
+    } finally {
+      setTimelineBusy(false);
+    }
+  }
+
+  React.useEffect(() => {
+    setGalleryItems([]);
+    setGalleryUiError('');
+
+    setTimelineItems([]);
+    setTimelineUiError('');
+
+    if (galleryPollTimerRef.current) {
+      clearInterval(galleryPollTimerRef.current);
+      galleryPollTimerRef.current = null;
+    }
+
+    const api = window.desktopApi as unknown as DesktopApiExt | undefined;
+    const gallery = api?.gallery;
+    const timeline = api?.timeline;
+    if (!gallery && !timeline) return;
+
+    if (gallery) {
+      void gallery
+        .list(activeSaveId)
+        .then((list) => setGalleryItems(Array.isArray(list) ? list : []))
+        .catch(() => {});
+    }
+
+    if (timeline) {
+      void timeline
+        .list({ saveId: activeSaveId, cursor: '0', limit: 20 })
+        .then((res) => setTimelineItems(Array.isArray(res?.items) ? res.items : []))
+        .catch(() => {});
+    }
+  }, [activeSaveId]);
+
+  React.useEffect(() => {
+    const hasPending = galleryItems.some((it) => String(it.status) === 'pending');
+    if (!hasPending) {
+      if (galleryPollTimerRef.current) {
+        clearInterval(galleryPollTimerRef.current);
+        galleryPollTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (galleryPollTimerRef.current) return;
+    galleryPollTimerRef.current = setInterval(() => {
+      const api = window.desktopApi as unknown as DesktopApiExt | undefined;
+      const gallery = api?.gallery;
+      if (!gallery) return;
+
+      void gallery
+        .list(activeSaveId)
+        .then((list) => setGalleryItems(Array.isArray(list) ? list : []))
+        .catch(() => {});
+    }, 900);
+  }, [galleryItems, activeSaveId]);
 
   async function onFeedDrop(e: React.DragEvent<HTMLButtonElement>) {
     e.preventDefault();
@@ -934,6 +1197,142 @@ export function App() {
           <div className="meta">最后一次建议{assistantCategory ? `（${assistantCategory}）` : ''}：</div>
           <div className="last" data-testid={TEST_IDS.assistantSuggestion}>
             {assistantSuggestion}
+          </div>
+        </section>
+
+        <section className="card">
+          <h2>生成式相册</h2>
+          <div className="meta">输入 prompt 点击生成；存在 pending 条目时会自动刷新列表。</div>
+          <div style={{ height: 10 }} />
+          <div className="row" data-testid={TEST_IDS.galleryGenerate}>
+            <input
+              value={galleryPrompt}
+              onChange={(e) => setGalleryPrompt(e.target.value)}
+              placeholder="生成提示词（prompt）"
+            />
+            <button type="button" onClick={onGalleryGenerate} disabled={galleryBusy}>
+              {galleryBusy ? '生成中…' : '生成'}
+            </button>
+            <button
+              type="button"
+              data-testid={TEST_IDS.galleryRefresh}
+              onClick={onGalleryRefresh}
+              className="btn-warn"
+              disabled={galleryBusy}
+            >
+              刷新
+            </button>
+          </div>
+
+          {galleryUiError ? <div className="danger">{galleryUiError}</div> : null}
+
+          <div style={{ height: 10 }} />
+          <div className="gallery-masonry" data-testid={TEST_IDS.galleryMasonry}>
+            {galleryItems.length === 0 ? (
+              <div className="meta">暂无图片（先生成或点击刷新）</div>
+            ) : (
+              galleryItems.map((it) => {
+                const statusLabel = toGalleryStatusLabel(it.status);
+                const timeLabel = formatGalleryTime(it.created_at);
+                const imgSrc =
+                  (typeof it.thumb_data_url === 'string' && it.thumb_data_url) ||
+                  (typeof it.image_data_url === 'string' && it.image_data_url) ||
+                  '';
+
+                return (
+                  <div key={it.id} className="gallery-item" data-testid={TEST_IDS.galleryItem}>
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span className="pill">{statusLabel}</span>
+                      {timeLabel ? <span className="meta">{timeLabel}</span> : null}
+                    </div>
+                    <div className="meta" style={{ marginTop: 6 }}>
+                      {it.prompt}
+                    </div>
+
+                    <div style={{ height: 8 }} />
+                    {String(it.status) === 'completed' && imgSrc ? (
+                      <img
+                        className="gallery-img"
+                        src={imgSrc}
+                        alt={it.prompt || it.id}
+                        loading="lazy"
+                      />
+                    ) : (
+                      <div className="gallery-placeholder">
+                        {String(it.status) === 'failed' ? '生成失败' : '等待生成…'}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.timelineCard}>
+          <h2>时间轴（离线模拟）</h2>
+          <div className="meta">手动触发服务端生成离线事件；刷新可拉取时间轴列表。</div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.timelineSimulate}
+              onClick={onTimelineSimulate}
+              disabled={timelineBusy}
+              className={timelineBusy ? '' : 'btn-ok'}
+            >
+              {timelineBusy ? '处理中…' : '模拟一次'}
+            </button>
+            <button
+              type="button"
+              data-testid={TEST_IDS.timelineRefresh}
+              onClick={onTimelineRefresh}
+              disabled={timelineBusy}
+              className="btn-warn"
+            >
+              刷新
+            </button>
+            <span className="pill">当前：{activeSaveId}</span>
+          </div>
+
+          {timelineUiError ? <div className="danger">{timelineUiError}</div> : null}
+
+          <div style={{ height: 10 }} />
+          <div
+            data-testid={TEST_IDS.timelineList}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10
+            }}
+          >
+            {timelineItems.length === 0 ? (
+              <div className="meta">暂无事件（点击“模拟一次”或“刷新”）</div>
+            ) : (
+              timelineItems.map((it) => {
+                const timeLabel = formatGalleryTime(it.createdAt);
+                return (
+                  <div
+                    key={it.id}
+                    data-testid={TEST_IDS.timelineItem}
+                    style={{
+                      border: '1px solid rgba(255,255,255,0.14)',
+                      borderRadius: 12,
+                      padding: 10,
+                      background: 'rgba(0,0,0,0.12)'
+                    }}
+                  >
+                    <div className="row" style={{ justifyContent: 'space-between' }}>
+                      <span className="pill">{it.eventType}</span>
+                      {timeLabel ? <span className="meta">{timeLabel}</span> : null}
+                    </div>
+                    <div style={{ height: 6 }} />
+                    <div>{it.content}</div>
+                  </div>
+                );
+              })
+            )}
           </div>
         </section>
 

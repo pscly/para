@@ -13,6 +13,8 @@ from app.api.v1.saves import router as saves_router
 from app.api.v1.personas import router as personas_router
 from app.api.v1.knowledge import router as knowledge_router
 from app.api.v1.sensors import router as sensors_router
+from app.api.v1.gallery import router as gallery_router
+from app.api.v1.timeline import router as timeline_router
 
 
 api_router = APIRouter()
@@ -24,3 +26,5 @@ api_router.include_router(saves_router)
 api_router.include_router(personas_router)
 api_router.include_router(knowledge_router)
 api_router.include_router(sensors_router)
+api_router.include_router(gallery_router)
+api_router.include_router(timeline_router)

@@ -1,5 +1,22 @@
 /// <reference types="vite/client" />
 
+export type GalleryItem = {
+  id: string;
+  status: string;
+  created_at: string;
+  prompt: string;
+  thumb_data_url?: string | null;
+  image_data_url?: string | null;
+};
+
+export type TimelineEventItem = {
+  id: string;
+  saveId: string;
+  eventType: string;
+  content: string;
+  createdAt: string;
+};
+
 export type DesktopApi = {
   ping: () => Promise<string>;
   versions: {
@@ -22,6 +39,22 @@ export type DesktopApi = {
       imageBase64: string;
       privacyMode: 'strict' | 'standard';
     }) => Promise<{ suggestion: string }>;
+  };
+  gallery: {
+    generate: (payload: { saveId: string; prompt: string }) => Promise<{ id: string; status: string }>;
+    list: (saveId: string) => Promise<GalleryItem[]>;
+  };
+  timeline: {
+    simulate: (payload: {
+      saveId: string;
+      eventType?: string;
+      content?: string;
+    }) => Promise<{ taskId: string; timelineEventId?: string }>;
+    list: (payload: {
+      saveId: string;
+      cursor?: string;
+      limit?: number;
+    }) => Promise<{ items: TimelineEventItem[]; nextCursor: string }>;
   };
   auth: {
     login: (email: string, password: string) => Promise<{ user_id: string | number; email: string }>;

@@ -173,6 +173,46 @@ input:focus {
   line-height: 1.45;
 }
 
+.gallery-masonry {
+  column-gap: 12px;
+  column-width: 220px;
+  max-height: 320px;
+  overflow: auto;
+  padding-right: 6px;
+}
+
+.gallery-item {
+  display: inline-block;
+  width: 100%;
+  break-inside: avoid;
+  margin: 0 0 12px;
+  padding: 10px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(0, 0, 0, 0.14);
+}
+
+.gallery-img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.gallery-placeholder {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 16px 12px;
+  text-align: center;
+  color: rgba(229, 231, 235, 0.8);
+  background:
+    radial-gradient(900px 240px at 15% 40%, rgba(52, 211, 153, 0.14), transparent 55%),
+    radial-gradient(700px 240px at 90% 10%, rgba(245, 158, 11, 0.1), transparent 55%),
+    rgba(0, 0, 0, 0.2);
+}
+
 @media (max-width: 900px) {
   body {
     overflow: auto;

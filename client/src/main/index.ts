@@ -28,6 +28,12 @@ const IPC_KNOWLEDGE_MATERIAL_STATUS = 'knowledge:materialStatus';
 
 const IPC_VISION_UPLOAD_SCREENSHOT = 'vision:uploadScreenshot';
 
+const IPC_GALLERY_GENERATE = 'gallery:generate';
+const IPC_GALLERY_LIST = 'gallery:list';
+
+const IPC_TIMELINE_SIMULATE = 'timeline:simulate';
+const IPC_TIMELINE_LIST = 'timeline:list';
+
 const IPC_ASSISTANT_SET_ENABLED = 'assistant:setEnabled';
 const IPC_ASSISTANT_SET_IDLE_ENABLED = 'assistant:setIdleEnabled';
 const IPC_ASSISTANT_WRITE_CLIPBOARD_TEXT = 'assistant:writeClipboardText';
@@ -101,6 +107,52 @@ type VisionSuggestionResponse = {
 type AssistantSuggestionPayload = {
   suggestion: string;
   category: string;
+};
+
+type GalleryGeneratePayload = {
+  saveId: string;
+  prompt: string;
+};
+
+type GalleryGenerateResult = {
+  id: string;
+  status: string;
+};
+
+type GalleryListPayload = {
+  saveId: string;
+};
+
+type GalleryItem = Record<string, unknown>;
+
+type TimelineSimulatePayload = {
+  saveId: string;
+  eventType?: string;
+  content?: string;
+};
+
+type TimelineSimulateResult = {
+  taskId: string;
+  timelineEventId?: string;
+};
+
+type TimelineEventItem = {
+  id: string;
+  saveId: string;
+  eventType: string;
+  content: string;
+  createdAt: string;
+};
+
+type TimelineListPayload = {
+  saveId: string;
+  cursor?: string;
+  limit?: number;
+};
+
+type TimelineListResult = {
+  items: TimelineEventItem[];
+  nextCursor: string;
 };
 
 function getAuthTokensFilePath(): string {
@@ -185,6 +237,108 @@ function parseVisionSuggestionResponse(json: unknown): VisionSuggestionResponse 
   const suggestionRaw = (json as Record<string, unknown>).suggestion;
   if (typeof suggestionRaw !== 'string') throw new Error('API_FAILED');
   return { suggestion: suggestionRaw };
+}
+
+function isGalleryGeneratePayload(value: unknown): value is GalleryGeneratePayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.saveId === 'string' &&
+    rec.saveId.trim() !== '' &&
+    typeof rec.prompt === 'string' &&
+    rec.prompt.trim() !== ''
+  );
+}
+
+function isGalleryListPayload(value: unknown): value is GalleryListPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return typeof rec.saveId === 'string' && rec.saveId.trim() !== '';
+}
+
+function isTimelineSimulatePayload(value: unknown): value is TimelineSimulatePayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.saveId !== 'string' || rec.saveId.trim() === '') return false;
+  if (rec.eventType != null && typeof rec.eventType !== 'string') return false;
+  if (rec.content != null && typeof rec.content !== 'string') return false;
+  return true;
+}
+
+function isTimelineListPayload(value: unknown): value is TimelineListPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.saveId !== 'string' || rec.saveId.trim() === '') return false;
+  if (rec.cursor != null && typeof rec.cursor !== 'string') return false;
+  if (rec.limit != null && typeof rec.limit !== 'number') return false;
+  return true;
+}
+
+function parseTimelineListResult(json: unknown): TimelineListResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const rawItems = rec.items;
+  if (!Array.isArray(rawItems)) throw new Error('API_FAILED');
+
+  const nextCursorRaw =
+    typeof rec.next_cursor === 'string'
+      ? rec.next_cursor
+      : typeof rec.nextCursor === 'string'
+        ? rec.nextCursor
+        : '';
+  const nextCursorStr = String(nextCursorRaw || '0');
+
+  const items: TimelineEventItem[] = rawItems
+    .filter((it) => isObjectRecord(it))
+    .map((it) => {
+      const r = it as Record<string, unknown>;
+      return {
+        id: String(r.id ?? '').trim(),
+        saveId: String(r.save_id ?? r.saveId ?? '').trim(),
+        eventType: String(r.event_type ?? r.eventType ?? '').trim(),
+        content: String(r.content ?? '').trim(),
+        createdAt: String(r.created_at ?? r.createdAt ?? '').trim(),
+      };
+    })
+    .filter(
+      (it) =>
+        it.id !== '' &&
+        it.saveId !== '' &&
+        it.eventType !== '' &&
+        it.content !== '' &&
+        it.createdAt !== ''
+    );
+
+  return { items, nextCursor: nextCursorStr };
+}
+
+function parseTimelineSimulateResult(json: unknown): TimelineSimulateResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const taskIdRaw = rec.task_id ?? rec.taskId;
+  const taskId = typeof taskIdRaw === 'string' ? taskIdRaw.trim() : '';
+  if (!taskId) throw new Error('API_FAILED');
+
+  const idRaw = rec.timeline_event_id ?? rec.timelineEventId;
+  const timelineEventId =
+    typeof idRaw === 'string' && idRaw.trim() !== '' ? idRaw.trim() : undefined;
+
+  return { taskId, timelineEventId };
+}
+
+function parseGalleryGenerateResponse(json: unknown): GalleryGenerateResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const galleryId = String(rec.gallery_id ?? '').trim();
+  const statusRaw = rec.status;
+
+  if (!galleryId) throw new Error('API_FAILED');
+  if (typeof statusRaw !== 'string' || statusRaw.trim() === '') throw new Error('API_FAILED');
+
+  return { id: galleryId, status: statusRaw };
 }
 
 function isSavesCreatePayload(value: unknown): value is SavesCreatePayload {
@@ -1406,6 +1560,84 @@ function registerVisionIpcHandlers() {
   });
 }
 
+function registerGalleryIpcHandlers() {
+  ipcMain.handle(IPC_GALLERY_GENERATE, async (_event, payload: unknown) => {
+    if (!isGalleryGeneratePayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, json } = await fetchAuthedJson('/api/v1/gallery/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        save_id: payload.saveId,
+        prompt: payload.prompt
+      })
+    });
+    if (!response.ok) throw new Error('API_FAILED');
+    return parseGalleryGenerateResponse(json);
+  });
+
+  ipcMain.handle(IPC_GALLERY_LIST, async (_event, payload: unknown) => {
+    if (!isGalleryListPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, json } = await fetchAuthedJson(
+      `/api/v1/gallery/items?save_id=${encodeURIComponent(payload.saveId)}`,
+      { method: 'GET' }
+    );
+    if (!response.ok) throw new Error('API_FAILED');
+    if (!Array.isArray(json)) throw new Error('API_FAILED');
+    return json as GalleryItem[];
+  });
+}
+
+function registerTimelineIpcHandlers() {
+  ipcMain.handle(IPC_TIMELINE_SIMULATE, async (_event, payload: unknown) => {
+    if (!isTimelineSimulatePayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, json } = await fetchAuthedJson('/api/v1/timeline/simulate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        save_id: payload.saveId,
+        ...(typeof payload.eventType === 'string' && payload.eventType.trim() !== ''
+          ? { event_type: payload.eventType }
+          : {}),
+        ...(typeof payload.content === 'string' && payload.content.trim() !== ''
+          ? { content: payload.content }
+          : {})
+      })
+    });
+    if (!response.ok) throw new Error('API_FAILED');
+    return parseTimelineSimulateResult(json);
+  });
+
+  ipcMain.handle(IPC_TIMELINE_LIST, async (_event, payload: unknown) => {
+    if (!isTimelineListPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const cursor = typeof payload.cursor === 'string' ? payload.cursor : '0';
+    const limit =
+      typeof payload.limit === 'number' && Number.isFinite(payload.limit) ? payload.limit : 20;
+    const qs = new URLSearchParams({
+      save_id: payload.saveId,
+      cursor,
+      limit: String(Math.max(1, Math.min(200, Math.floor(limit))))
+    });
+
+    const { response, json } = await fetchAuthedJson(`/api/v1/timeline?${qs.toString()}`, {
+      method: 'GET'
+    });
+    if (!response.ok) throw new Error('API_FAILED');
+    return parseTimelineListResult(json);
+  });
+}
+
 function registerAssistantIpcHandlers() {
   ipcMain.handle(IPC_ASSISTANT_SET_ENABLED, async (_event, payload: unknown) => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
@@ -1603,6 +1835,8 @@ app.whenReady().then(() => {
   registerSavesAndPersonasIpcHandlers();
   registerKnowledgeIpcHandlers();
   registerVisionIpcHandlers();
+  registerGalleryIpcHandlers();
+  registerTimelineIpcHandlers();
   registerAssistantIpcHandlers();
 
   mainWindow = createMainWindow();
