@@ -98,6 +98,82 @@ type TimelineListResult = {
   nextCursor: string;
 };
 
+type SocialCreateRoomResult = {
+  id: string;
+  roomType: string;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+type SocialInvitePayload = {
+  roomId: string;
+  targetUserId: string;
+};
+
+type SocialInviteResult = {
+  roomId: string;
+  actorUserId: string;
+  targetUserId: string;
+  status: string;
+};
+
+type SocialJoinPayload = {
+  roomId: string;
+};
+
+type SocialJoinResult = {
+  roomId: string;
+  actorUserId: string;
+  targetUserId: string;
+  status: string;
+};
+
+type UgcApprovedAssetListItem = {
+  id: string;
+  asset_type: string;
+};
+
+type ApprovedPluginListItem = {
+  id: string;
+  version: string;
+  name: string;
+  sha256: string;
+  permissions: unknown;
+};
+
+type PluginInstalledRef = {
+  id: string;
+  version: string;
+  name?: string;
+  sha256?: string;
+  permissions?: unknown;
+};
+
+type PluginMenuItem = {
+  pluginId: string;
+  id: string;
+  label: string;
+};
+
+type PluginOutputPayload = {
+  type: 'say' | 'suggestion';
+  pluginId: string;
+  text: string;
+};
+
+type PluginStatus = {
+  enabled: boolean;
+  installed: PluginInstalledRef | null;
+  running: boolean;
+  menuItems: PluginMenuItem[];
+  lastError: string | null;
+};
+
+type PluginInstallPayload = {
+  pluginId?: string;
+  version?: string;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
   versions: {
@@ -132,6 +208,53 @@ contextBridge.exposeInMainWorld('desktopApi', {
     },
     list: async (payload: { saveId: string; cursor?: string; limit?: number }): Promise<TimelineListResult> => {
       return ipcRenderer.invoke('timeline:list', payload) as Promise<TimelineListResult>;
+    }
+  },
+  social: {
+    createRoom: async (payload?: { roomType?: string }): Promise<SocialCreateRoomResult> => {
+      return ipcRenderer.invoke('social:createRoom', payload ?? {}) as Promise<SocialCreateRoomResult>;
+    },
+    invite: async (payload: SocialInvitePayload): Promise<SocialInviteResult> => {
+      return ipcRenderer.invoke('social:invite', payload) as Promise<SocialInviteResult>;
+    },
+    join: async (payload: SocialJoinPayload): Promise<SocialJoinResult> => {
+      return ipcRenderer.invoke('social:join', payload) as Promise<SocialJoinResult>;
+    }
+  },
+  ugc: {
+    listApproved: async (): Promise<UgcApprovedAssetListItem[]> => {
+      return ipcRenderer.invoke('ugc:listApproved') as Promise<UgcApprovedAssetListItem[]>;
+    }
+  },
+  plugins: {
+    getStatus: async (): Promise<PluginStatus> => {
+      return ipcRenderer.invoke('plugins:getStatus') as Promise<PluginStatus>;
+    },
+    getMenuItems: async (): Promise<PluginMenuItem[]> => {
+      return ipcRenderer.invoke('plugins:getMenuItems') as Promise<PluginMenuItem[]>;
+    },
+    clickMenuItem: async (payload: { pluginId: string; id: string }): Promise<{ ok: boolean }> => {
+      return ipcRenderer.invoke('plugins:menuClick', payload) as Promise<{ ok: boolean }>;
+    },
+    setEnabled: async (enabled: boolean): Promise<PluginStatus> => {
+      return ipcRenderer.invoke('plugins:setEnabled', { enabled }) as Promise<PluginStatus>;
+    },
+    listApproved: async (): Promise<ApprovedPluginListItem[]> => {
+      return ipcRenderer.invoke('plugins:listApproved') as Promise<ApprovedPluginListItem[]>;
+    },
+    install: async (payload?: PluginInstallPayload): Promise<PluginStatus> => {
+      if (payload) {
+        return ipcRenderer.invoke('plugins:install', payload) as Promise<PluginStatus>;
+      }
+      return ipcRenderer.invoke('plugins:install') as Promise<PluginStatus>;
+    },
+    onOutput: (handler: (payload: PluginOutputPayload) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, payload: PluginOutputPayload) => {
+        handler(payload);
+      };
+
+      ipcRenderer.on('plugins:output', listener);
+      return () => ipcRenderer.removeListener('plugins:output', listener);
     }
   },
   auth: {

@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference types="@testing-library/jest-dom/vitest" />
 
 export type GalleryItem = {
   id: string;
@@ -9,12 +10,46 @@ export type GalleryItem = {
   image_data_url?: string | null;
 };
 
-export type TimelineEventItem = {
+export type UgcAsset = {
   id: string;
-  saveId: string;
-  eventType: string;
-  content: string;
-  createdAt: string;
+  asset_type: string;
+  status?: string;
+};
+
+export type ApprovedPluginListItem = {
+  id: string;
+  version: string;
+  name: string;
+  sha256: string;
+  permissions: unknown;
+};
+
+export type PluginInstalledRef = {
+  id: string;
+  version: string;
+  name?: string;
+  sha256?: string;
+  permissions?: unknown;
+};
+
+export type PluginMenuItem = {
+  pluginId: string;
+  id: string;
+  label: string;
+};
+
+export type PluginOutputPayload = {
+  type: 'say' | 'suggestion';
+  pluginId: string;
+  text: string;
+};
+
+export type PluginStatus = {
+  enabled: boolean;
+  installed: PluginInstalledRef | null;
+  running: boolean;
+  menuItems: PluginMenuItem[];
+  lastError: string | null;
 };
 
 export type DesktopApi = {
@@ -44,6 +79,18 @@ export type DesktopApi = {
     generate: (payload: { saveId: string; prompt: string }) => Promise<{ id: string; status: string }>;
     list: (saveId: string) => Promise<GalleryItem[]>;
   };
+  ugc: {
+    listApproved: () => Promise<UgcAsset[]>;
+  };
+  plugins: {
+    getStatus: () => Promise<PluginStatus>;
+    setEnabled: (enabled: boolean) => Promise<PluginStatus>;
+    listApproved: () => Promise<ApprovedPluginListItem[]>;
+    install: (payload?: { pluginId?: string; version?: string }) => Promise<PluginStatus>;
+    getMenuItems: () => Promise<PluginMenuItem[]>;
+    clickMenuItem: (payload: { pluginId: string; id: string }) => Promise<{ ok: boolean }>;
+    onOutput: (handler: (payload: PluginOutputPayload) => void) => () => void;
+  };
   timeline: {
     simulate: (payload: {
       saveId: string;
@@ -54,7 +101,35 @@ export type DesktopApi = {
       saveId: string;
       cursor?: string;
       limit?: number;
-    }) => Promise<{ items: TimelineEventItem[]; nextCursor: string }>;
+    }) => Promise<{ items: Array<{ id: string; saveId: string; eventType: string; content: string; createdAt: string }>; nextCursor: string }>;
+  };
+  saves: {
+    list: () => Promise<Array<{ id: string; name: string; persona_id?: string | null }>>;
+    create: (name: string) => Promise<{ id: string; name: string }>;
+    bindPersona: (saveId: string, personaId: string) => Promise<unknown>;
+  };
+  personas: {
+    list: () => Promise<Array<{ id: string; name: string; version: number }>>;
+  };
+  social: {
+    createRoom: (payload?: { roomType?: string }) => Promise<{
+      id: string;
+      roomType: string;
+      createdByUserId: string;
+      createdAt: string;
+    }>;
+    invite: (payload: { roomId: string; targetUserId: string }) => Promise<{
+      roomId: string;
+      actorUserId: string;
+      targetUserId: string;
+      status: string;
+    }>;
+    join: (payload: { roomId: string }) => Promise<{
+      roomId: string;
+      actorUserId: string;
+      targetUserId: string;
+      status: string;
+    }>;
   };
   auth: {
     login: (email: string, password: string) => Promise<{ user_id: string | number; email: string }>;
@@ -82,6 +157,12 @@ export type DesktopApi = {
     writeClipboardText: (text: string) => Promise<void>;
   };
 };
+
+declare module 'vite' {
+  interface UserConfig {
+    test?: unknown;
+  }
+}
 
 declare global {
   interface Window {

@@ -34,7 +34,34 @@ export const TEST_IDS = {
   timelineSimulate: 'timeline-simulate',
   timelineRefresh: 'timeline-refresh',
   timelineList: 'timeline-list',
-  timelineItem: 'timeline-item'
+  timelineItem: 'timeline-item',
+
+  socialRoomCard: 'social-room-card',
+  socialRoomId: 'social-room-id',
+  socialTargetUserId: 'social-target-user-id',
+  socialCreateRoom: 'social-create-room',
+  socialInvite: 'social-invite',
+  socialJoin: 'social-join',
+  socialEventList: 'social-event-list',
+  socialEventItem: 'social-event-item',
+
+  ugcCard: 'ugc-card',
+  ugcRefresh: 'ugc-refresh',
+  ugcList: 'ugc-list',
+  ugcItem: 'ugc-item',
+
+  pluginsCard: 'plugins-card',
+  pluginsToggle: 'plugins-toggle',
+  pluginsConsentPanel: 'plugins-consent-panel',
+  pluginsConsentAccept: 'plugins-consent-accept',
+  pluginsConsentDecline: 'plugins-consent-decline',
+  pluginsRefresh: 'plugins-refresh',
+  pluginsSelect: 'plugins-select',
+  pluginsInstall: 'plugins-install',
+  pluginsStatus: 'plugins-status',
+  pluginsError: 'plugins-error',
+  pluginsMenuList: 'plugins-menu-list',
+  pluginsMenuItem: 'plugins-menu-item'
 } as const;
 
 export type TestIdKey = keyof typeof TEST_IDS;

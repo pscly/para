@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import secrets
 from typing import ClassVar
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -24,6 +25,15 @@ class Settings(BaseSettings):
     auth_access_token_secret: str = "dev-secret-change-me"
     auth_access_token_ttl_seconds: int = 900
     auth_refresh_token_ttl_days: int = 30
+
+    admin_access_token_secret: str = "dev-admin-secret-change-me"
+    admin_access_token_ttl_seconds: int = 3600
+
+    audit_log_retention_days: int = 90
+
+    # Minimal admin review guard (for high-risk flows like UGC).
+    # Default is a per-process random secret suitable for local/test.
+    admin_review_secret: str = secrets.token_urlsafe(32)
 
     # Prefer DATABASE_URL when provided; otherwise construct from POSTGRES_* vars.
     database_url: str | None = None

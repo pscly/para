@@ -1,5 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+import { fork, type ChildProcess } from 'node:child_process';
 import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
 
 const AUTH_TOKENS_FILENAME = 'auth.tokens.json';
@@ -33,6 +35,20 @@ const IPC_GALLERY_LIST = 'gallery:list';
 
 const IPC_TIMELINE_SIMULATE = 'timeline:simulate';
 const IPC_TIMELINE_LIST = 'timeline:list';
+
+const IPC_SOCIAL_CREATE_ROOM = 'social:createRoom';
+const IPC_SOCIAL_INVITE = 'social:invite';
+const IPC_SOCIAL_JOIN = 'social:join';
+
+const IPC_UGC_LIST_APPROVED = 'ugc:listApproved';
+
+const IPC_PLUGINS_GET_STATUS = 'plugins:getStatus';
+const IPC_PLUGINS_SET_ENABLED = 'plugins:setEnabled';
+const IPC_PLUGINS_LIST_APPROVED = 'plugins:listApproved';
+const IPC_PLUGINS_INSTALL = 'plugins:install';
+const IPC_PLUGINS_GET_MENU_ITEMS = 'plugins:getMenuItems';
+const IPC_PLUGINS_MENU_CLICK = 'plugins:menuClick';
+const IPC_PLUGINS_OUTPUT = 'plugins:output';
 
 const IPC_ASSISTANT_SET_ENABLED = 'assistant:setEnabled';
 const IPC_ASSISTANT_SET_IDLE_ENABLED = 'assistant:setIdleEnabled';
@@ -155,8 +171,165 @@ type TimelineListResult = {
   nextCursor: string;
 };
 
+type SocialCreateRoomPayload = {
+  roomType?: string;
+};
+
+type SocialRoomCreateResult = {
+  id: string;
+  roomType: string;
+  createdByUserId: string;
+  createdAt: string;
+};
+
+type SocialInvitePayload = {
+  roomId: string;
+  targetUserId: string;
+};
+
+type SocialRoomInviteResult = {
+  roomId: string;
+  actorUserId: string;
+  targetUserId: string;
+  status: string;
+};
+
+type SocialJoinPayload = {
+  roomId: string;
+};
+
+type SocialRoomJoinResult = {
+  roomId: string;
+  actorUserId: string;
+  targetUserId: string;
+  status: string;
+};
+
+type UgcApprovedAssetListItem = {
+  id: string;
+  asset_type: string;
+};
+
+type ApprovedPluginListItem = {
+  id: string;
+  version: string;
+  name: string;
+  sha256: string;
+  permissions: unknown;
+};
+
+type PluginInstalledRef = {
+  id: string;
+  version: string;
+  name?: string;
+  sha256?: string;
+  permissions?: unknown;
+};
+
+type PluginStateFile = {
+  enabled: boolean;
+  installed: PluginInstalledRef | null;
+};
+
+type PluginMenuItem = {
+  pluginId: string;
+  id: string;
+  label: string;
+};
+
+type PluginStatus = {
+  enabled: boolean;
+  installed: PluginInstalledRef | null;
+  running: boolean;
+  menuItems: PluginMenuItem[];
+  lastError: string | null;
+};
+
+type PluginDownloadBundle = {
+  manifestJson: string;
+  code: string;
+  sha256: string;
+};
+
+type FeatureFlagsResponse = {
+  generated_at?: string;
+  feature_flags?: {
+    plugins_enabled?: boolean;
+    pluginsEnabled?: boolean;
+  };
+};
+
+type PluginHostCmd =
+  | {
+      type: 'load';
+      pluginId: string;
+      version: string;
+      entryPath: string;
+      permissions: unknown;
+    }
+  | {
+      type: 'menu:click';
+      pluginId: string;
+      id: string;
+      requestId: string;
+    }
+  | { type: 'shutdown' };
+
+const PLUGINS_DIRNAME = 'plugins';
+const PLUGINS_STATE_FILENAME = 'state.json';
+const PLUGINS_BUNDLES_DIRNAME = 'bundles';
+
+const PLUGIN_SAY_MAX_CHARS = 200;
+const PLUGIN_SUGGESTION_MAX_CHARS = 200;
+const PLUGIN_MENU_ITEMS_MAX = 10;
+const PLUGIN_MENU_LABEL_MAX_CHARS = 80;
+const PLUGIN_MENU_ID_MAX_CHARS = 80;
+const PLUGIN_MENU_CLICK_TIMEOUT_MS = 1200;
+const PLUGIN_PENDING_MENU_CLICKS_MAX = 20;
+
 function getAuthTokensFilePath(): string {
   return path.join(app.getPath('userData'), AUTH_TOKENS_FILENAME);
+}
+
+function getPluginsRootDir(): string {
+  return path.join(app.getPath('userData'), PLUGINS_DIRNAME);
+}
+
+function getPluginsStateFilePath(): string {
+  return path.join(getPluginsRootDir(), PLUGINS_STATE_FILENAME);
+}
+
+function safePathSegment(raw: string): string {
+  const s = raw.trim();
+  if (s === '') return 'empty';
+  // 只允许有限字符，避免路径穿越/奇怪字符导致的兼容性问题
+  const cleaned = s.replace(/[^a-zA-Z0-9._-]/g, '_');
+  return cleaned.length > 80 ? cleaned.slice(0, 80) : cleaned;
+}
+
+function isPermissionsValue(value: unknown): boolean {
+  // alpha：只要求 permissions 字段显式存在；空 {} / [] 代表 deny-all。
+  if (Array.isArray(value)) return true;
+  if (isObjectRecord(value)) return true;
+  return false;
+}
+
+function parsePluginDownloadBundle(json: unknown): PluginDownloadBundle {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+  const manifestJson = typeof rec.manifest_json === 'string' ? rec.manifest_json : '';
+  const code = typeof rec.code === 'string' ? rec.code : '';
+  const sha256 = typeof rec.sha256 === 'string' ? rec.sha256 : '';
+  if (!manifestJson || !code || !sha256) throw new Error('API_FAILED');
+  return { manifestJson, code, sha256 };
+}
+
+function sha256HexUtf8(text: string): string {
+  return crypto.createHash('sha256').update(text, 'utf8').digest('hex');
+}
+
+function newPluginRequestId(): string {
+  return `plg_${Date.now()}_${Math.random().toString(16).slice(2)}`;
 }
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -301,14 +474,7 @@ function parseTimelineListResult(json: unknown): TimelineListResult {
         createdAt: String(r.created_at ?? r.createdAt ?? '').trim(),
       };
     })
-    .filter(
-      (it) =>
-        it.id !== '' &&
-        it.saveId !== '' &&
-        it.eventType !== '' &&
-        it.content !== '' &&
-        it.createdAt !== ''
-    );
+    .filter((it) => it.id !== '' && it.saveId !== '' && it.eventType !== '' && it.content !== '' && it.createdAt !== '');
 
   return { items, nextCursor: nextCursorStr };
 }
@@ -322,10 +488,72 @@ function parseTimelineSimulateResult(json: unknown): TimelineSimulateResult {
   if (!taskId) throw new Error('API_FAILED');
 
   const idRaw = rec.timeline_event_id ?? rec.timelineEventId;
-  const timelineEventId =
-    typeof idRaw === 'string' && idRaw.trim() !== '' ? idRaw.trim() : undefined;
+  const timelineEventId = typeof idRaw === 'string' && idRaw.trim() !== '' ? idRaw.trim() : undefined;
 
   return { taskId, timelineEventId };
+}
+
+function isSocialCreateRoomPayload(value: unknown): value is SocialCreateRoomPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  if (rec.roomType != null && typeof rec.roomType !== 'string') return false;
+  return true;
+}
+
+function isSocialInvitePayload(value: unknown): value is SocialInvitePayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    typeof rec.roomId === 'string' &&
+    rec.roomId.trim() !== '' &&
+    typeof rec.targetUserId === 'string' &&
+    rec.targetUserId.trim() !== ''
+  );
+}
+
+function isSocialJoinPayload(value: unknown): value is SocialJoinPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return typeof rec.roomId === 'string' && rec.roomId.trim() !== '';
+}
+
+function parseSocialRoomCreateResult(json: unknown): SocialRoomCreateResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const id = typeof rec.id === 'string' ? rec.id.trim() : '';
+  const roomType = typeof rec.room_type === 'string' ? rec.room_type.trim() : '';
+  const createdByUserId = typeof rec.created_by_user_id === 'string' ? rec.created_by_user_id.trim() : '';
+  const createdAt = typeof rec.created_at === 'string' ? rec.created_at.trim() : '';
+
+  if (!id || !roomType || !createdByUserId || !createdAt) throw new Error('API_FAILED');
+  return { id, roomType, createdByUserId, createdAt };
+}
+
+function parseSocialRoomInviteResult(json: unknown): SocialRoomInviteResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const roomId = typeof rec.room_id === 'string' ? rec.room_id.trim() : '';
+  const actorUserId = typeof rec.actor_user_id === 'string' ? rec.actor_user_id.trim() : '';
+  const targetUserId = typeof rec.target_user_id === 'string' ? rec.target_user_id.trim() : '';
+  const status = typeof rec.status === 'string' ? rec.status.trim() : '';
+
+  if (!roomId || !actorUserId || !targetUserId || !status) throw new Error('API_FAILED');
+  return { roomId, actorUserId, targetUserId, status };
+}
+
+function parseSocialRoomJoinResult(json: unknown): SocialRoomJoinResult {
+  if (!isObjectRecord(json)) throw new Error('API_FAILED');
+  const rec = json as Record<string, unknown>;
+
+  const roomId = typeof rec.room_id === 'string' ? rec.room_id.trim() : '';
+  const actorUserId = typeof rec.actor_user_id === 'string' ? rec.actor_user_id.trim() : '';
+  const targetUserId = typeof rec.target_user_id === 'string' ? rec.target_user_id.trim() : '';
+  const status = typeof rec.status === 'string' ? rec.status.trim() : '';
+
+  if (!roomId || !actorUserId || !targetUserId || !status) throw new Error('API_FAILED');
+  return { roomId, actorUserId, targetUserId, status };
 }
 
 function parseGalleryGenerateResponse(json: unknown): GalleryGenerateResult {
@@ -567,6 +795,16 @@ function safeSendToRenderer(channel: string, payload: unknown): void {
   try {
     win.webContents.send(channel, payload);
   } catch {
+  }
+}
+
+function safeSendToAllRenderers(channel: string, payload: unknown): void {
+  const wins = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && !w.webContents.isDestroyed());
+  for (const win of wins) {
+    try {
+      win.webContents.send(channel, payload);
+    } catch {
+    }
   }
 }
 
@@ -917,6 +1155,35 @@ async function readJsonResponse(response: Response): Promise<unknown> {
   }
 }
 
+function parsePluginsEnabledFromFeatureFlagsResponse(json: unknown): boolean | null {
+  if (!isObjectRecord(json)) return null;
+  const rec = json as FeatureFlagsResponse;
+  const flags = rec.feature_flags;
+  if (!isObjectRecord(flags)) return null;
+  const enabled = (flags as Record<string, unknown>).plugins_enabled ?? (flags as Record<string, unknown>).pluginsEnabled;
+  if (typeof enabled !== 'boolean') return null;
+  return enabled;
+}
+
+async function fetchPluginsEnabledFeatureFlag(): Promise<boolean | null> {
+  if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
+    return null;
+  }
+
+  const baseUrl = getServerBaseUrl();
+
+  let resp: Response;
+  try {
+    resp = await fetch(buildApiUrl(baseUrl, '/api/v1/feature_flags'), { method: 'GET' });
+  } catch {
+    return null;
+  }
+
+  if (!resp.ok) return null;
+  const json = await readJsonResponse(resp);
+  return parsePluginsEnabledFromFeatureFlagsResponse(json);
+}
+
 async function loginAndGetMe(email: string, password: string): Promise<AuthMeResponse> {
   if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
     throw new Error('FETCH_UNAVAILABLE');
@@ -1061,6 +1328,13 @@ async function fetchAuthedJson(
 
   const json = await readJsonResponse(resp);
   return { response: resp, json };
+}
+
+function throwApiErrorForStatus(resp: Response): never {
+  if (resp.status === 403) throw new Error('FORBIDDEN');
+  if (resp.status === 404) throw new Error('NOT_FOUND');
+  if (resp.status === 422) throw new Error('INVALID_PAYLOAD');
+  throw new Error('API_FAILED');
 }
 
 function looksLikeEnglish(textIn: string): boolean {
@@ -1253,6 +1527,458 @@ class AssistantManager {
 }
 
 const assistantManager = new AssistantManager();
+
+class PluginManager {
+  private state: PluginStateFile = { enabled: false, installed: null };
+  private host: ChildProcess | null = null;
+  private menuItems: PluginMenuItem[] = [];
+  private lastError: string | null = null;
+
+  private remotePluginsEnabled = false;
+
+  private pendingMenuClicks = new Map<
+    string,
+    {
+      resolve: (ok: boolean) => void;
+      reject: (err: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
+
+  async init(): Promise<void> {
+    this.state = await this.readStateFromDisk();
+    await this.applyEffectiveRuntimeState();
+  }
+
+  async setRemotePluginsEnabled(enabled: boolean): Promise<void> {
+    const next = Boolean(enabled);
+    if (this.remotePluginsEnabled === next) return;
+    this.remotePluginsEnabled = next;
+    await this.applyEffectiveRuntimeState();
+  }
+
+  private isExecutionAllowed(): boolean {
+    return this.state.enabled && this.remotePluginsEnabled;
+  }
+
+  private async applyEffectiveRuntimeState(knownEntryPath?: string): Promise<void> {
+    if (!this.isExecutionAllowed()) {
+      await this.stopHost();
+      this.clearRuntimeState();
+      return;
+    }
+
+    const installed = this.state.installed;
+    if (!installed) {
+      await this.stopHost();
+      this.clearRuntimeState();
+      return;
+    }
+
+    const running = Boolean(this.host && !this.host.killed);
+    if (running) return;
+
+    await this.startHost(installed, knownEntryPath);
+  }
+
+  getStatus(): PluginStatus {
+    const running = Boolean(this.host && !this.host.killed);
+    return {
+      enabled: this.state.enabled,
+      installed: this.state.installed,
+      running: this.isExecutionAllowed() ? running : false,
+      menuItems: this.isExecutionAllowed() ? [...this.menuItems] : [],
+      lastError: this.lastError
+    };
+  }
+
+  getMenuItems(): PluginMenuItem[] {
+    if (!this.isExecutionAllowed()) return [];
+    return [...this.menuItems];
+  }
+
+  async clickMenuItem(payload: { pluginId: string; id: string }): Promise<{ ok: boolean }> {
+    if (!this.isExecutionAllowed()) throw new Error('PLUGINS_DISABLED');
+    const installed = this.state.installed;
+    if (!installed) throw new Error('NO_PLUGIN_INSTALLED');
+    if (!this.host || this.host.killed) throw new Error('PLUGIN_HOST_NOT_RUNNING');
+
+    const pluginId = String(payload.pluginId ?? '').trim();
+    const id = String(payload.id ?? '').trim();
+    if (!pluginId || !id) throw new Error('INVALID_PAYLOAD');
+    if (pluginId !== installed.id) throw new Error('PLUGIN_MISMATCH');
+
+    if (this.pendingMenuClicks.size >= PLUGIN_PENDING_MENU_CLICKS_MAX) {
+      throw new Error('TOO_MANY_PENDING');
+    }
+
+    const requestId = newPluginRequestId();
+
+    const ok = await new Promise<boolean>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingMenuClicks.delete(requestId);
+        reject(new Error('TIMEOUT'));
+      }, PLUGIN_MENU_CLICK_TIMEOUT_MS);
+
+      this.pendingMenuClicks.set(requestId, { resolve, reject, timer });
+
+      try {
+        this.host?.send?.({ type: 'menu:click', pluginId, id, requestId } satisfies PluginHostCmd);
+      } catch {
+        clearTimeout(timer);
+        this.pendingMenuClicks.delete(requestId);
+        reject(new Error('PLUGIN_HOST_SEND_FAILED'));
+      }
+    });
+
+    return { ok };
+  }
+
+  async setEnabled(enabled: boolean): Promise<PluginStatus> {
+    const nextEnabled = Boolean(enabled);
+    if (this.state.enabled === nextEnabled) return this.getStatus();
+
+    this.state.enabled = nextEnabled;
+    await this.writeStateToDisk(this.state);
+
+    if (nextEnabled) this.lastError = null;
+    await this.applyEffectiveRuntimeState();
+    return this.getStatus();
+  }
+
+  async listApproved(): Promise<ApprovedPluginListItem[]> {
+    const { response, json } = await fetchAuthedJson('/api/v1/plugins', { method: 'GET' });
+    if (!response.ok) throwApiErrorForStatus(response);
+    if (!Array.isArray(json)) throw new Error('API_FAILED');
+
+    return json
+      .filter((it) => isObjectRecord(it))
+      .map((it) => {
+        const rec = it as Record<string, unknown>;
+        const id = String(rec.id ?? '').trim();
+        const version = String(rec.version ?? '').trim();
+        const name = String(rec.name ?? '').trim();
+        const sha256 = String(rec.sha256 ?? '').trim();
+        const permissions = rec.permissions;
+        return { id, version, name, sha256, permissions } satisfies ApprovedPluginListItem;
+      })
+      .filter((it) => {
+        if (it.id === '' || it.version === '' || it.name === '') return false;
+        if (it.sha256 === '' || it.sha256.length < 16) return false;
+        if (!isPermissionsValue(it.permissions)) return false;
+        return true;
+      });
+  }
+
+  async install(selection?: Partial<{ pluginId: string; version: string }>): Promise<PluginStatus> {
+    const approved = await this.listApproved();
+    if (approved.length === 0) throw new Error('NO_APPROVED_PLUGINS');
+
+    const wantId = typeof selection?.pluginId === 'string' ? selection.pluginId.trim() : '';
+    const wantVer = typeof selection?.version === 'string' ? selection.version.trim() : '';
+
+    let chosen: ApprovedPluginListItem | null = null;
+    if (wantId && wantVer) {
+      chosen = approved.find((p) => p.id === wantId && p.version === wantVer) ?? null;
+    } else if (wantId) {
+      chosen = approved.find((p) => p.id === wantId) ?? null;
+    }
+    if (!chosen) chosen = approved[0] ?? null;
+    if (!chosen) throw new Error('NO_APPROVED_PLUGINS');
+
+    const entryPath = await this.downloadAndStoreBundle(chosen);
+
+    this.state.installed = {
+      id: chosen.id,
+      version: chosen.version,
+      name: chosen.name,
+      sha256: chosen.sha256,
+      permissions: chosen.permissions
+    };
+    await this.writeStateToDisk(this.state);
+
+    if (this.isExecutionAllowed()) {
+      await this.startHost({ ...this.state.installed, permissions: chosen.permissions }, entryPath);
+    } else {
+      await this.stopHost();
+      this.clearRuntimeState();
+    }
+
+    return this.getStatus();
+  }
+
+  private clearRuntimeState(): void {
+    this.menuItems = [];
+  }
+
+  private rejectAllPendingMenuClicks(err: Error): void {
+    for (const [requestId, p] of this.pendingMenuClicks.entries()) {
+      clearTimeout(p.timer);
+      this.pendingMenuClicks.delete(requestId);
+      try {
+        p.reject(err);
+      } catch {
+      }
+    }
+  }
+
+  private async stopHost(): Promise<void> {
+    if (!this.host) return;
+    const host = this.host;
+    this.host = null;
+
+    this.rejectAllPendingMenuClicks(new Error('PLUGIN_HOST_STOPPED'));
+
+    try {
+      host.send?.({ type: 'shutdown' } satisfies PluginHostCmd);
+    } catch {
+    }
+
+    try {
+      host.kill();
+    } catch {
+    }
+  }
+
+  private async startHost(installed: PluginInstalledRef, knownEntryPath?: string): Promise<void> {
+    if (!this.isExecutionAllowed()) return;
+    if (!installed.permissions || !isPermissionsValue(installed.permissions)) {
+      this.lastError = 'PERMISSIONS_REQUIRED';
+      return;
+    }
+
+    await this.stopHost();
+    this.clearRuntimeState();
+    this.lastError = null;
+
+    const entryPath = knownEntryPath ?? this.getBundleEntryPath(installed.id, installed.version);
+    try {
+      await fs.access(entryPath);
+    } catch {
+      this.lastError = 'PLUGIN_NOT_INSTALLED_ON_DISK';
+      return;
+    }
+
+    const pluginHostEntry = path.join(__dirname, 'plugin_host.js');
+    const child = fork(pluginHostEntry, [], {
+      stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+      env: {
+        ...process.env,
+      }
+    });
+    this.host = child;
+
+    child.on('message', (raw: unknown) => {
+      this.onHostMessage(raw);
+    });
+    child.on('exit', () => {
+      if (this.host === child) this.host = null;
+      this.rejectAllPendingMenuClicks(new Error('PLUGIN_HOST_EXITED'));
+    });
+    child.on('error', () => {
+      if (this.host === child) this.host = null;
+      this.rejectAllPendingMenuClicks(new Error('PLUGIN_HOST_ERROR'));
+      this.lastError = 'PLUGIN_HOST_ERROR';
+    });
+
+    try {
+      child.send({
+        type: 'load',
+        pluginId: installed.id,
+        version: installed.version,
+        entryPath,
+        permissions: installed.permissions
+      } satisfies PluginHostCmd);
+    } catch {
+      this.lastError = 'PLUGIN_HOST_SEND_FAILED';
+    }
+  }
+
+  private onHostMessage(raw: unknown): void {
+    if (!isObjectRecord(raw)) return;
+    const msg = raw as Record<string, unknown>;
+    const type = msg.type;
+    if (typeof type !== 'string') return;
+
+    if (type === 'menu:click:result') {
+      const requestId = typeof msg.requestId === 'string' ? msg.requestId : '';
+      const ok = msg.ok === true;
+      if (!requestId) return;
+      const pending = this.pendingMenuClicks.get(requestId);
+      if (!pending) return;
+
+      clearTimeout(pending.timer);
+      this.pendingMenuClicks.delete(requestId);
+
+      try {
+        pending.resolve(ok);
+      } catch {
+      }
+      return;
+    }
+
+    if (type === 'error') {
+      const message = typeof msg.message === 'string' ? msg.message : 'PLUGIN_RUNTIME_ERROR';
+      this.lastError = message;
+      return;
+    }
+
+    if (type === 'menu:add') {
+      const pluginId = typeof msg.pluginId === 'string' ? msg.pluginId : '';
+      const item = isObjectRecord(msg.item) ? (msg.item as Record<string, unknown>) : null;
+      const id = item && typeof item.id === 'string' ? item.id : '';
+      const label = item && typeof item.label === 'string' ? item.label : '';
+      if (!pluginId || !id || !label) return;
+
+      if (this.menuItems.length >= PLUGIN_MENU_ITEMS_MAX) return;
+
+      const clippedId = id.trim().slice(0, PLUGIN_MENU_ID_MAX_CHARS);
+      const clippedLabel = label.trim().slice(0, PLUGIN_MENU_LABEL_MAX_CHARS);
+      if (!clippedId || !clippedLabel) return;
+
+      this.menuItems.push({ pluginId, id: clippedId, label: clippedLabel });
+      return;
+    }
+
+    if (type === 'say' || type === 'suggestion') {
+      const pluginId = typeof msg.pluginId === 'string' ? msg.pluginId : '';
+      const text = typeof msg.text === 'string' ? msg.text : '';
+      if (!pluginId || !text) return;
+      const maxChars = type === 'say' ? PLUGIN_SAY_MAX_CHARS : PLUGIN_SUGGESTION_MAX_CHARS;
+      const clipped = text.trim().slice(0, maxChars);
+      if (!clipped) return;
+      safeSendToAllRenderers(IPC_PLUGINS_OUTPUT, { type, pluginId, text: clipped });
+      return;
+    }
+  }
+
+  private getBundleEntryPath(pluginId: string, version: string): string {
+    const safeId = safePathSegment(pluginId);
+    const safeVer = safePathSegment(version);
+    return path.join(getPluginsRootDir(), PLUGINS_BUNDLES_DIRNAME, safeId, safeVer, 'index.js');
+  }
+
+  private async downloadAndStoreBundle(item: ApprovedPluginListItem): Promise<string> {
+    const { response, json } = await fetchAuthedJson(
+      `/api/v1/plugins/${encodeURIComponent(item.id)}/${encodeURIComponent(item.version)}`,
+      { method: 'GET' },
+    );
+    if (!response.ok) throwApiErrorForStatus(response);
+    const bundle = parsePluginDownloadBundle(json);
+    const codeText = bundle.code;
+
+    const expected = item.sha256.trim().toLowerCase();
+    const actual = sha256HexUtf8(codeText).toLowerCase();
+    const serverSha = bundle.sha256.trim().toLowerCase();
+    if (serverSha && serverSha !== actual) throw new Error('SHA256_MISMATCH');
+    if (expected && expected !== actual) throw new Error('SHA256_MISMATCH');
+
+    const entryPath = this.getBundleEntryPath(item.id, item.version);
+    const dir = path.dirname(entryPath);
+    await fs.mkdir(dir, { recursive: true });
+    const tmpPath = `${entryPath}.tmp`;
+    await fs.writeFile(tmpPath, codeText, { encoding: 'utf8' });
+    await fs.rename(tmpPath, entryPath);
+    return entryPath;
+  }
+
+  private async readStateFromDisk(): Promise<PluginStateFile> {
+    const filePath = getPluginsStateFilePath();
+    let raw: string;
+    try {
+      raw = await fs.readFile(filePath, { encoding: 'utf8' });
+    } catch (err: unknown) {
+      const code = isObjectRecord(err) ? err.code : undefined;
+      if (code === 'ENOENT') return { enabled: false, installed: null };
+      return { enabled: false, installed: null };
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      return { enabled: false, installed: null };
+    }
+
+    if (!isObjectRecord(parsed)) return { enabled: false, installed: null };
+    const enabled = typeof parsed.enabled === 'boolean' ? parsed.enabled : false;
+    const installedRaw = parsed.installed;
+    if (!isObjectRecord(installedRaw)) {
+      return { enabled, installed: null };
+    }
+
+    const id = typeof installedRaw.id === 'string' ? installedRaw.id.trim() : '';
+    const version = typeof installedRaw.version === 'string' ? installedRaw.version.trim() : '';
+    if (!id || !version) return { enabled, installed: null };
+
+    const name = typeof installedRaw.name === 'string' ? installedRaw.name : undefined;
+    const sha256 = typeof installedRaw.sha256 === 'string' ? installedRaw.sha256 : undefined;
+    const permissions = installedRaw.permissions;
+
+    return {
+      enabled,
+      installed: {
+        id,
+        version,
+        name,
+        sha256,
+        permissions
+      }
+    };
+  }
+
+  private async writeStateToDisk(state: PluginStateFile): Promise<void> {
+    const root = getPluginsRootDir();
+    await fs.mkdir(root, { recursive: true });
+
+    const filePath = getPluginsStateFilePath();
+    const tmpPath = `${filePath}.tmp`;
+    await fs.writeFile(tmpPath, JSON.stringify(state), { encoding: 'utf8' });
+    await fs.rename(tmpPath, filePath);
+  }
+
+}
+
+const pluginManager = new PluginManager();
+
+const FEATURE_FLAGS_POLL_INTERVAL_MS = 1200;
+
+class FeatureFlagsPoller {
+  private timer: NodeJS.Timeout | null = null;
+  private inFlight = false;
+  private pluginsEnabled: boolean | null = null;
+
+  start(): void {
+    if (this.timer) return;
+    void this.pollOnce();
+    this.timer = setInterval(() => {
+      void this.pollOnce();
+    }, FEATURE_FLAGS_POLL_INTERVAL_MS);
+  }
+
+  stop(): void {
+    if (!this.timer) return;
+    clearInterval(this.timer);
+    this.timer = null;
+  }
+
+  private async pollOnce(): Promise<void> {
+    if (this.inFlight) return;
+    this.inFlight = true;
+    try {
+      const enabled = await fetchPluginsEnabledFeatureFlag();
+      if (typeof enabled !== 'boolean') return;
+      if (this.pluginsEnabled === enabled) return;
+      this.pluginsEnabled = enabled;
+      await pluginManager.setRemotePluginsEnabled(enabled);
+    } catch {
+    } finally {
+      this.inFlight = false;
+    }
+  }
+}
+
+const featureFlagsPoller = new FeatureFlagsPoller();
 
 function isStoredAuthTokensFile(value: unknown): value is StoredAuthTokensFile {
   if (!isObjectRecord(value)) return false;
@@ -1585,7 +2311,7 @@ function registerGalleryIpcHandlers() {
 
     const { response, json } = await fetchAuthedJson(
       `/api/v1/gallery/items?save_id=${encodeURIComponent(payload.saveId)}`,
-      { method: 'GET' }
+      { method: 'GET' },
     );
     if (!response.ok) throw new Error('API_FAILED');
     if (!Array.isArray(json)) throw new Error('API_FAILED');
@@ -1604,12 +2330,8 @@ function registerTimelineIpcHandlers() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         save_id: payload.saveId,
-        ...(typeof payload.eventType === 'string' && payload.eventType.trim() !== ''
-          ? { event_type: payload.eventType }
-          : {}),
-        ...(typeof payload.content === 'string' && payload.content.trim() !== ''
-          ? { content: payload.content }
-          : {})
+        ...(typeof payload.eventType === 'string' && payload.eventType.trim() !== '' ? { event_type: payload.eventType } : {}),
+        ...(typeof payload.content === 'string' && payload.content.trim() !== '' ? { content: payload.content } : {})
       })
     });
     if (!response.ok) throw new Error('API_FAILED');
@@ -1622,8 +2344,7 @@ function registerTimelineIpcHandlers() {
     }
 
     const cursor = typeof payload.cursor === 'string' ? payload.cursor : '0';
-    const limit =
-      typeof payload.limit === 'number' && Number.isFinite(payload.limit) ? payload.limit : 20;
+    const limit = typeof payload.limit === 'number' && Number.isFinite(payload.limit) ? payload.limit : 20;
     const qs = new URLSearchParams({
       save_id: payload.saveId,
       cursor,
@@ -1635,6 +2356,118 @@ function registerTimelineIpcHandlers() {
     });
     if (!response.ok) throw new Error('API_FAILED');
     return parseTimelineListResult(json);
+  });
+}
+
+function registerSocialIpcHandlers() {
+  ipcMain.handle(IPC_SOCIAL_CREATE_ROOM, async (_event, payload: unknown) => {
+    if (!isSocialCreateRoomPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const roomType = typeof payload.roomType === 'string' && payload.roomType.trim() !== '' ? payload.roomType.trim() : 'social';
+    const { response, json } = await fetchAuthedJson('/api/v1/social/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ room_type: roomType })
+    });
+    if (!response.ok) throwApiErrorForStatus(response);
+    return parseSocialRoomCreateResult(json);
+  });
+
+  ipcMain.handle(IPC_SOCIAL_INVITE, async (_event, payload: unknown) => {
+    if (!isSocialInvitePayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, json } = await fetchAuthedJson(
+      `/api/v1/social/rooms/${encodeURIComponent(payload.roomId)}/invite`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_user_id: payload.targetUserId })
+      }
+    );
+    if (!response.ok) throwApiErrorForStatus(response);
+    return parseSocialRoomInviteResult(json);
+  });
+
+  ipcMain.handle(IPC_SOCIAL_JOIN, async (_event, payload: unknown) => {
+    if (!isSocialJoinPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, json } = await fetchAuthedJson(
+      `/api/v1/social/rooms/${encodeURIComponent(payload.roomId)}/join`,
+      { method: 'POST' },
+    );
+    if (!response.ok) throwApiErrorForStatus(response);
+    return parseSocialRoomJoinResult(json);
+  });
+}
+
+function registerUgcIpcHandlers() {
+  ipcMain.handle(IPC_UGC_LIST_APPROVED, async (): Promise<UgcApprovedAssetListItem[]> => {
+    const { response, json } = await fetchAuthedJson('/api/v1/ugc/assets?status=approved', {
+      method: 'GET'
+    });
+    if (!response.ok) throwApiErrorForStatus(response);
+    if (!Array.isArray(json)) throw new Error('API_FAILED');
+
+    return json
+      .filter((it) => isObjectRecord(it))
+      .map((it) => {
+        const rec = it as Record<string, unknown>;
+        const rawId = rec.id;
+        const rawAssetType = rec.asset_type ?? rec.assetType;
+        return {
+          id: String(rawId ?? ''),
+          asset_type: String(rawAssetType ?? '')
+        };
+      })
+      .filter((it) => it.id.trim() !== '' && it.asset_type.trim() !== '');
+  });
+}
+
+function registerPluginsIpcHandlers() {
+  ipcMain.handle(IPC_PLUGINS_GET_STATUS, async (): Promise<PluginStatus> => {
+    return pluginManager.getStatus();
+  });
+
+  ipcMain.handle(IPC_PLUGINS_GET_MENU_ITEMS, async (): Promise<PluginMenuItem[]> => {
+    return pluginManager.getMenuItems();
+  });
+
+  ipcMain.handle(IPC_PLUGINS_SET_ENABLED, async (_event, payload: unknown): Promise<PluginStatus> => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const enabled = payload.enabled;
+    if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
+    return pluginManager.setEnabled(enabled);
+  });
+
+  ipcMain.handle(IPC_PLUGINS_LIST_APPROVED, async (): Promise<ApprovedPluginListItem[]> => {
+    return pluginManager.listApproved();
+  });
+
+  ipcMain.handle(IPC_PLUGINS_INSTALL, async (_event, payload: unknown): Promise<PluginStatus> => {
+    if (payload == null) return pluginManager.install();
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const pluginId = payload.pluginId;
+    const version = payload.version;
+    if (pluginId != null && typeof pluginId !== 'string') throw new Error('INVALID_PAYLOAD');
+    if (version != null && typeof version !== 'string') throw new Error('INVALID_PAYLOAD');
+    return pluginManager.install({
+      pluginId: typeof pluginId === 'string' ? pluginId : undefined,
+      version: typeof version === 'string' ? version : undefined
+    });
+  });
+
+  ipcMain.handle(IPC_PLUGINS_MENU_CLICK, async (_event, payload: unknown): Promise<{ ok: boolean }> => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const pluginId = payload.pluginId;
+    const id = payload.id;
+    if (typeof pluginId !== 'string' || typeof id !== 'string') throw new Error('INVALID_PAYLOAD');
+    return pluginManager.clickMenuItem({ pluginId, id });
   });
 }
 
@@ -1829,7 +2662,7 @@ function setupTray(): void {
   refreshTrayMenu();
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   registerAuthIpcHandlers();
   registerWsIpcHandlers();
   registerSavesAndPersonasIpcHandlers();
@@ -1837,7 +2670,13 @@ app.whenReady().then(() => {
   registerVisionIpcHandlers();
   registerGalleryIpcHandlers();
   registerTimelineIpcHandlers();
+  registerSocialIpcHandlers();
+  registerUgcIpcHandlers();
   registerAssistantIpcHandlers();
+  registerPluginsIpcHandlers();
+
+  await pluginManager.init();
+  featureFlagsPoller.start();
 
   mainWindow = createMainWindow();
   petWindow = createPetWindow();
@@ -1860,6 +2699,7 @@ app.whenReady().then(() => {
 });
 
 app.on('will-quit', () => {
+  featureFlagsPoller.stop();
   globalShortcut.unregisterAll();
 });
 

@@ -61,7 +61,7 @@
 在不牺牲“架构完整性”的前提下，用可控的工程拆分与默认关闭的能力开关，交付一个可实际跑通的内测 Alpha。
 
 ### Definition of Done（最终完成标准）
-- [ ] 一键启动本地开发环境（Postgres+Redis+Server+Client）后，Agent 可自动完成：注册/登录 → 建立 WS → 流式聊天 → 写入与检索长记忆 → 投喂 PDF/MD 并可检索问答 → 可选启用截图理解并触发主动气泡 → 生成相册任务并在 UI 看到结果 → 离线生活时间轴可拉取 → 社交房间可创建与转发 → UGC/插件进入审核并可下发 → Admin 可配置模型/Prompt/开关并查看用量与延迟。
+- [x] 一键启动本地开发环境（Postgres+Redis+Server+Client）后，Agent 可自动完成：注册/登录 → 建立 WS → 流式聊天 → 写入与检索长记忆 → 投喂 PDF/MD 并可检索问答 → 可选启用截图理解并触发主动气泡 → 生成相册任务并在 UI 看到结果 → 离线生活时间轴可拉取 → 社交房间可创建与转发 → UGC/插件进入审核并可下发 → Admin 可配置模型/Prompt/开关并查看用量与延迟。
 
 ### 必须包含（Must Have）
 - 契约先行：OpenAPI 产物可生成 SDK，并在 CI/测试中校验“契约不漂移”
@@ -609,7 +609,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 闲置 5 分钟 → 触发关怀建议（可关闭）
   - 证据：`.sisyphus/evidence/task-16-assistant-suggest.png`
 
-- [ ] 17. 生成式相册：生图任务 + 存储 + 展示
+- [x] 17. 生成式相册：生图任务 + 存储 + 展示
 
   **要做什么**：
   - Server：gallery job（异步），存储到本地 FS/对象存储，产出缩略图
@@ -619,7 +619,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 触发生成任务 → job 完成 → UI 出现新图片
   - 证据：`.sisyphus/evidence/task-17-gallery.png`
 
-- [ ] 18. 平行生活离线模拟：时间轴事件生成 + 回放
+- [x] 18. 平行生活离线模拟：时间轴事件生成 + 回放
 
   **要做什么**：
   - Server：定时生成离线事件（可先简单随机+状态权重）
@@ -629,7 +629,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 手动触发模拟任务 → 客户端拉取到事件并显示
   - 证据：`.sisyphus/evidence/task-18-timeline.png`
 
-- [ ] 19. 社交房间：串门/房间消息转发 + 最小 UI
+- [x] 19. 社交房间：串门/房间消息转发 + 最小 UI
 
   **要做什么**：
   - Server：房间创建/邀请/加入；WS 转发 ROOM_EVENT
@@ -639,7 +639,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 后端 pytest：建立 2 个 WS 客户端连接（同一进程）→ 创建房间 → 邀请/加入 → 双方收到 ROOM_EVENT（避免依赖两台真实桌面环境）
   - 证据：`.sisyphus/evidence/task-19-room-event.txt`
 
-- [ ] 20. UGC 工坊骨架：上传 → pending → admin 审核 → approved 下发
+- [x] 20. UGC 工坊骨架：上传 → pending → admin 审核 → approved 下发
 
   **要做什么**：
   - Server：UGC 资源上传（manifest + 文件）进入 pending
@@ -650,7 +650,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 上传资源 → admin approve → client 可拉取
   - 证据：`.sisyphus/evidence/task-20-ugc-approve.txt`
 
-- [ ] 21. 插件系统（Alpha 安全版）：manifest + 权限 + 沙箱运行（默认关闭）
+- [x] 21. 插件系统（Alpha 安全版）：manifest + 权限 + 沙箱运行（默认关闭）
 
   **要做什么**：
   - 插件必须 manifest 声明权限（网络/文件/屏幕/剪贴板等默认全禁）
@@ -663,7 +663,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 开启后：安装一个示例插件 → 在环形菜单出现入口 → 点击触发气泡输出
   - 证据：`.sisyphus/evidence/task-21-plugin.png`
 
-- [ ] 22. 管理后台最小可用：模型/Prompt/开关/用量延迟/审核
+- [x] 22. 管理后台最小可用：模型/Prompt/开关/用量延迟/审核
 
   **要做什么**：
   - RBAC：至少区分 super admin 与 operator
@@ -676,7 +676,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - `curl` 或 Playwright：登录 admin → 修改一个开关 → 客户端实时生效
   - 证据：`.sisyphus/evidence/task-22-admin-flag.png`
 
-- [ ] 23. 隐私/安全基线：同意弹窗、数据保留、日志脱敏、审计
+- [x] 23. 隐私/安全基线：同意弹窗、数据保留、日志脱敏、审计
 
   **要做什么**：
   - Client：敏感能力启用必须弹窗确认（可撤回）
@@ -688,7 +688,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - 审计表有记录
   - 证据：`.sisyphus/evidence/task-23-audit.txt`
 
-- [ ] 24. CI/本地一键验收脚本：契约漂移 + 测试全绿
+- [x] 24. CI/本地一键验收脚本：契约漂移 + 测试全绿
 
   **要做什么**：
   - 增加 `scripts/ci.sh`（或等价）串联：
@@ -702,7 +702,7 @@ Wave 6（社交/UGC/插件 + Admin 完整闭环 + 验收脚本）：任务 19-25
   - Agent 执行 `./scripts/ci.sh` → exit 0
   - 证据：`.sisyphus/evidence/task-24-ci.txt`
 
-- [ ] 25. Alpha E2E QA Runner：覆盖 DoD 的端到端证据产出
+- [x] 25. Alpha E2E QA Runner：覆盖 DoD 的端到端证据产出
 
   **要做什么**：
   - 增加 `scripts/qa_alpha.sh`（或等价）自动化跑通：

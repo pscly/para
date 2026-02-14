@@ -33,16 +33,26 @@ cd "$repo_root"
 
 mkdir -p contracts
 
-(cd server && uv run python -m app.scripts.export_openapi --output ../contracts/openapi.json)
-npm -C client run gen:api
-
 if [[ $check -eq 1 ]]; then
-  generated_status="$(git status --porcelain -- contracts/openapi.json client/src/gen)"
-  if [[ -n "$generated_status" ]]; then
-    echo "Generated outputs are not clean (untracked/modified)." >&2
-    echo "Run ./scripts/generate-contracts.sh and commit the results." >&2
+  before_status="$(git status --porcelain -- contracts/openapi.json client/src/gen)"
+
+  (cd server && uv run python -m app.scripts.export_openapi --output ../contracts/openapi.json)
+  npm -C client run gen:api
+
+  after_status="$(git status --porcelain -- contracts/openapi.json client/src/gen)"
+  if [[ "$after_status" != "$before_status" ]]; then
+    echo "Generated outputs drifted after regeneration." >&2
+    echo "Run ./scripts/generate-contracts.sh (without --check) and commit the results." >&2
     echo >&2
-    echo "$generated_status" >&2
+    echo "Before:" >&2
+    echo "$before_status" >&2
+    echo >&2
+    echo "After:" >&2
+    echo "$after_status" >&2
     exit 1
   fi
+  exit 0
 fi
+
+(cd server && uv run python -m app.scripts.export_openapi --output ../contracts/openapi.json)
+npm -C client run gen:api

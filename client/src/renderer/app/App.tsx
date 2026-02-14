@@ -23,10 +23,6 @@ type KnowledgeMaterial = {
 
 type VisionPrivacyMode = 'strict' | 'standard';
 
-type VisionSuggestionResponse = {
-  suggestion: string;
-};
-
 type GalleryItemStatus = 'pending' | 'completed' | 'failed';
 
 type GalleryItem = {
@@ -46,54 +42,48 @@ type TimelineEventItem = {
   createdAt: string;
 };
 
-type DesktopApiExt = {
-  saves?: {
-    list: () => Promise<SaveListItem[]>;
-    create: (name: string) => Promise<{ id: string; name: string }>;
-    bindPersona: (saveId: string, personaId: string) => Promise<unknown>;
-  };
-  personas?: {
-    list: () => Promise<PersonaListItem[]>;
-  };
-  knowledge?: {
-    uploadMaterial: (payload: {
-      bytes: ArrayBuffer;
-      filename: string;
-      mimeType?: string;
-      saveId: string;
-    }) => Promise<KnowledgeMaterial>;
-    materialStatus: (id: string) => Promise<KnowledgeMaterial>;
-  };
-  vision?: {
-    uploadScreenshot: (payload: {
-      saveId: string;
-      imageBase64: string;
-      privacyMode: VisionPrivacyMode;
-    }) => Promise<VisionSuggestionResponse>;
-  };
-  gallery?: {
-    generate: (payload: { saveId: string; prompt: string }) => Promise<{ id: string; status: string }>;
-    list: (saveId: string) => Promise<GalleryItem[]>;
-  };
-  timeline?: {
-    simulate: (payload: {
-      saveId: string;
-      eventType?: string;
-      content?: string;
-    }) => Promise<{ taskId: string; timelineEventId?: string }>;
-    list: (payload: {
-      saveId: string;
-      cursor?: string;
-      limit?: number;
-    }) => Promise<{ items: TimelineEventItem[]; nextCursor: string }>;
-  };
-  assistant?: {
-    setEnabled: (enabled: boolean, saveId: string) => Promise<void>;
-    setIdleEnabled: (enabled: boolean) => Promise<void>;
-    onSuggestion: (handler: (payload: unknown) => void) => () => void;
-    writeClipboardText?: (text: string) => Promise<void>;
-  };
+type SocialRoomEventItem = {
+  key: string;
+  text: string;
 };
+
+type UgcApprovedAssetListItem = {
+  id: string;
+  asset_type: string;
+  status?: string;
+};
+
+type ApprovedPluginListItem = {
+  id: string;
+  version: string;
+  name: string;
+  sha256: string;
+  permissions: unknown;
+};
+
+type PluginInstalledRef = {
+  id: string;
+  version: string;
+  name?: string;
+  sha256?: string;
+  permissions?: unknown;
+};
+
+type PluginMenuItem = {
+  pluginId: string;
+  id: string;
+  label: string;
+};
+
+type PluginStatus = {
+  enabled: boolean;
+  installed: PluginInstalledRef | null;
+  running: boolean;
+  menuItems: PluginMenuItem[];
+  lastError: string | null;
+};
+
+type DesktopApiExt = NonNullable<Window['desktopApi']>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -103,6 +93,37 @@ function getUnsubscribe(ret: unknown): (() => void) | null {
   if (typeof ret === 'function') return ret as () => void;
   if (isRecord(ret) && typeof ret.unsubscribe === 'function') return ret.unsubscribe as () => void;
   return null;
+}
+
+function formatRoomEventText(frame: Record<string, unknown>): SocialRoomEventItem | null {
+  const payload = frame.payload;
+  const serverEventId = typeof frame.server_event_id === 'string' ? frame.server_event_id : '';
+
+  let text = '';
+  if (isRecord(payload)) {
+    const eventName = typeof payload.event === 'string' ? payload.event : 'ROOM_EVENT';
+    const roomId = typeof payload.room_id === 'string' ? payload.room_id : '';
+    const actor = typeof payload.actor_user_id === 'string' ? payload.actor_user_id : '';
+    const target = typeof payload.target_user_id === 'string' ? payload.target_user_id : '';
+    const at = typeof payload.created_at === 'string' ? payload.created_at : '';
+
+    const parts = [eventName];
+    if (roomId) parts.push(`room=${roomId}`);
+    if (actor) parts.push(`actor=${actor}`);
+    if (target) parts.push(`target=${target}`);
+    if (at) parts.push(`at=${at}`);
+    text = parts.join(' ');
+  } else {
+    try {
+      text = `ROOM_EVENT ${JSON.stringify(payload)}`;
+    } catch {
+      text = 'ROOM_EVENT (unparseable payload)';
+    }
+  }
+
+  if (text.trim() === '') return null;
+  const key = serverEventId || `room_evt_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  return { key, text };
 }
 
 function toStatusLabel(status: unknown): string {
@@ -176,6 +197,26 @@ export function App() {
   const [timelineBusy, setTimelineBusy] = React.useState(false);
   const [timelineUiError, setTimelineUiError] = React.useState('');
 
+  const [socialRoomId, setSocialRoomId] = React.useState('');
+  const [socialTargetUserId, setSocialTargetUserId] = React.useState('');
+  const [socialUiError, setSocialUiError] = React.useState('');
+  const [socialUiInfo, setSocialUiInfo] = React.useState('');
+  const [socialBusy, setSocialBusy] = React.useState(false);
+  const [socialRoomEvents, setSocialRoomEvents] = React.useState<SocialRoomEventItem[]>([]);
+
+  const [ugcAssets, setUgcAssets] = React.useState<UgcApprovedAssetListItem[]>([]);
+  const [ugcBusy, setUgcBusy] = React.useState(false);
+  const [ugcUiError, setUgcUiError] = React.useState('');
+
+  const [pluginsStatus, setPluginsStatus] = React.useState<PluginStatus | null>(null);
+  const [pluginsApproved, setPluginsApproved] = React.useState<ApprovedPluginListItem[]>([]);
+  const [pluginsSelectedKey, setPluginsSelectedKey] = React.useState<string>('');
+  const [pluginsBusy, setPluginsBusy] = React.useState(false);
+  const [pluginsUiError, setPluginsUiError] = React.useState('');
+  const [pluginsConsentOpen, setPluginsConsentOpen] = React.useState(false);
+
+  const socialSeenEventIdsRef = React.useRef<Set<string>>(new Set());
+
   const galleryPollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
 
   const feedAbortRef = React.useRef<AbortController | null>(null);
@@ -186,12 +227,13 @@ export function App() {
   const versions = window.desktopApi?.versions;
 
   React.useEffect(() => {
-    return () => {
-      if (galleryPollTimerRef.current) {
-        clearInterval(galleryPollTimerRef.current);
-        galleryPollTimerRef.current = null;
-      }
-    };
+    const api = window.desktopApi;
+    const plugins = api?.plugins;
+    if (!plugins) return;
+    void plugins
+      .getStatus()
+      .then((status) => setPluginsStatus(status ?? null))
+      .catch(() => {});
   }, []);
 
   React.useEffect(() => {
@@ -212,6 +254,20 @@ export function App() {
         if (!isRecord(frame)) return;
         const type = frame.type;
         if (typeof type !== 'string') return;
+
+        if (type === 'ROOM_EVENT') {
+          const serverEventId = typeof frame.server_event_id === 'string' ? frame.server_event_id : '';
+          if (serverEventId && socialSeenEventIdsRef.current.has(serverEventId)) return;
+          if (serverEventId) socialSeenEventIdsRef.current.add(serverEventId);
+
+          const item = formatRoomEventText(frame);
+          if (!item) return;
+          setSocialRoomEvents((prev) => {
+            const next = [...prev, item];
+            return next.length > 80 ? next.slice(next.length - 80) : next;
+          });
+          return;
+        }
 
         if (type === 'CHAT_TOKEN') {
           const payload = frame.payload;
@@ -257,7 +313,16 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const api = window.desktopApi as unknown as DesktopApiExt | undefined;
+    return () => {
+      if (galleryPollTimerRef.current) {
+        clearInterval(galleryPollTimerRef.current);
+        galleryPollTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const api = window.desktopApi;
     const assistant = api?.assistant;
     if (!assistant?.onSuggestion) return;
 
@@ -363,6 +428,41 @@ export function App() {
     return '时间轴操作失败';
   }
 
+  function toReadableSocialError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('FORBIDDEN')) return '没有权限（可能未被邀请/无管理权限）';
+    if (code.includes('NOT_FOUND')) return '房间不存在';
+    if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
+    if (code.includes('API_FAILED')) return '请求失败';
+    return '社交房间操作失败';
+  }
+
+  function toReadableUgcError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('FORBIDDEN')) return '没有权限';
+    if (code.includes('NOT_FOUND')) return '接口不存在';
+    if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
+    if (code.includes('API_FAILED')) return '请求失败';
+    return 'UGC 拉取失败';
+  }
+
+  function toReadablePluginsError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('NO_APPROVED_PLUGINS')) return '暂无已审核插件（approved 列表为空）';
+    if (code.includes('SHA256_MISMATCH')) return '插件校验失败（sha256 不匹配）';
+    if (code.includes('PERMISSIONS_REQUIRED')) return '插件 manifest.permissions 缺失（必须显式声明）';
+    if (code.includes('PLUGIN_NOT_INSTALLED_ON_DISK')) return '插件未安装到本地（请先安装）';
+    if (code.includes('API_FAILED')) return '请求失败';
+    if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
+    return '插件操作失败';
+  }
+
   function toGalleryStatusLabel(status: unknown): string {
     if (status === 'pending') return '生成中';
     if (status === 'completed') return '已完成';
@@ -382,9 +482,9 @@ export function App() {
   }
 
   function getDesktopApiExt(): DesktopApiExt | null {
-    const api = window.desktopApi as unknown;
+    const api = window.desktopApi;
     if (!api) return null;
-    return api as DesktopApiExt;
+    return api;
   }
 
   function isMdFile(file: File): boolean {
@@ -533,6 +633,268 @@ export function App() {
     }
   }
 
+  async function onSocialCreateRoom() {
+    if (socialBusy) return;
+    setSocialUiError('');
+    setSocialUiInfo('');
+
+    const api = getDesktopApiExt();
+    const social = api?.social;
+    if (!social) {
+      setSocialUiError('社交接口不可用');
+      return;
+    }
+
+    setSocialBusy(true);
+    try {
+      const created = await social.createRoom({ roomType: 'social' });
+      setSocialRoomId(created.id);
+      setSocialUiInfo(`已创建房间：${created.id}`);
+    } catch (err: unknown) {
+      setSocialUiError(toReadableSocialError(err));
+    } finally {
+      setSocialBusy(false);
+    }
+  }
+
+  async function onSocialInvite() {
+    if (socialBusy) return;
+    setSocialUiError('');
+    setSocialUiInfo('');
+
+    const roomId = socialRoomId.trim();
+    if (!roomId) {
+      setSocialUiError('请先创建房间');
+      return;
+    }
+    const targetUserId = socialTargetUserId.trim();
+    if (!targetUserId) {
+      setSocialUiError('请输入 target user_id');
+      return;
+    }
+
+    const api = getDesktopApiExt();
+    const social = api?.social;
+    if (!social) {
+      setSocialUiError('社交接口不可用');
+      return;
+    }
+
+    setSocialBusy(true);
+    try {
+      const res = await social.invite({ roomId, targetUserId });
+      setSocialUiInfo(`已邀请：${res.targetUserId}（status=${res.status}）`);
+    } catch (err: unknown) {
+      setSocialUiError(toReadableSocialError(err));
+    } finally {
+      setSocialBusy(false);
+    }
+  }
+
+  async function refreshUgcApprovedAssets(opts?: { silent?: boolean }) {
+    const api = getDesktopApiExt();
+    const ugc = api?.ugc;
+    if (!ugc) {
+      if (!opts?.silent) setUgcUiError('UGC 接口不可用');
+      return;
+    }
+
+    try {
+      const list = await ugc.listApproved();
+      setUgcAssets(Array.isArray(list) ? list : []);
+      if (!opts?.silent) setUgcUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setUgcUiError(toReadableUgcError(err));
+    }
+  }
+
+  async function onUgcRefresh() {
+    if (ugcBusy) return;
+    setUgcUiError('');
+    setUgcBusy(true);
+    try {
+      await refreshUgcApprovedAssets();
+    } finally {
+      setUgcBusy(false);
+    }
+  }
+
+  function makePluginKey(it: { id: string; version: string }): string {
+    return `${it.id}@@${it.version}`;
+  }
+
+  function parsePluginKey(key: string): { pluginId: string; version: string } | null {
+    const idx = key.indexOf('@@');
+    if (idx <= 0) return null;
+    const pluginId = key.slice(0, idx).trim();
+    const version = key.slice(idx + 2).trim();
+    if (!pluginId || !version) return null;
+    return { pluginId, version };
+  }
+
+  async function refreshPluginsStatus(opts?: { silent?: boolean }) {
+    const api = getDesktopApiExt();
+    const plugins = api?.plugins;
+    if (!plugins) {
+      if (!opts?.silent) setPluginsUiError('Plugins 接口不可用');
+      return;
+    }
+
+    try {
+      const status = await plugins.getStatus();
+      setPluginsStatus(status ?? null);
+      if (!opts?.silent) setPluginsUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setPluginsUiError(toReadablePluginsError(err));
+    }
+  }
+
+  async function refreshPluginsApproved(opts?: { silent?: boolean }) {
+    const api = getDesktopApiExt();
+    const plugins = api?.plugins;
+    if (!plugins) {
+      if (!opts?.silent) setPluginsUiError('Plugins 接口不可用');
+      return;
+    }
+
+    try {
+      const list = await plugins.listApproved();
+      const safe = Array.isArray(list) ? list : [];
+      setPluginsApproved(safe);
+
+      if (safe.length > 0 && !pluginsSelectedKey) {
+        setPluginsSelectedKey(makePluginKey(safe[0]));
+      }
+
+      if (!opts?.silent) setPluginsUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setPluginsUiError(toReadablePluginsError(err));
+    }
+  }
+
+  async function onPluginsRefresh() {
+    if (pluginsBusy) return;
+    setPluginsUiError('');
+    setPluginsBusy(true);
+    try {
+      await refreshPluginsApproved();
+      await refreshPluginsStatus({ silent: true });
+    } finally {
+      setPluginsBusy(false);
+    }
+  }
+
+  async function onPluginsToggle() {
+    if (pluginsBusy) return;
+    setPluginsUiError('');
+
+    const api = getDesktopApiExt();
+    const plugins = api?.plugins;
+    if (!plugins) {
+      setPluginsUiError('Plugins 接口不可用');
+      return;
+    }
+
+    if (!(pluginsStatus?.enabled ?? false)) {
+      setPluginsConsentOpen(true);
+      return;
+    }
+
+    setPluginsBusy(true);
+    try {
+      const status = await plugins.setEnabled(false);
+      setPluginsStatus(status ?? null);
+    } catch (err: unknown) {
+      setPluginsUiError(toReadablePluginsError(err));
+    } finally {
+      setPluginsBusy(false);
+      setPluginsConsentOpen(false);
+    }
+  }
+
+  async function onPluginsConsentAccept() {
+    if (pluginsBusy) return;
+    setPluginsUiError('');
+
+    const api = getDesktopApiExt();
+    const plugins = api?.plugins;
+    if (!plugins) {
+      setPluginsUiError('Plugins 接口不可用');
+      return;
+    }
+
+    setPluginsBusy(true);
+    try {
+      const status = await plugins.setEnabled(true);
+      setPluginsStatus(status ?? null);
+      setPluginsConsentOpen(false);
+    } catch (err: unknown) {
+      setPluginsUiError(toReadablePluginsError(err));
+    } finally {
+      setPluginsBusy(false);
+    }
+  }
+
+  function onPluginsConsentDecline() {
+    setPluginsConsentOpen(false);
+  }
+
+  async function onPluginsInstall() {
+    if (pluginsBusy) return;
+    setPluginsUiError('');
+
+    const api = getDesktopApiExt();
+    const plugins = api?.plugins;
+    if (!plugins) {
+      setPluginsUiError('Plugins 接口不可用');
+      return;
+    }
+
+    setPluginsBusy(true);
+    try {
+      const parsed = parsePluginKey(pluginsSelectedKey);
+      const status = parsed ? await plugins.install(parsed) : await plugins.install();
+      setPluginsStatus(status ?? null);
+
+      window.setTimeout(() => {
+        void refreshPluginsStatus({ silent: true });
+      }, 200);
+    } catch (err: unknown) {
+      setPluginsUiError(toReadablePluginsError(err));
+    } finally {
+      setPluginsBusy(false);
+    }
+  }
+
+  async function onSocialJoin() {
+    if (socialBusy) return;
+    setSocialUiError('');
+    setSocialUiInfo('');
+
+    const roomId = socialRoomId.trim();
+    if (!roomId) {
+      setSocialUiError('请先创建房间');
+      return;
+    }
+
+    const api = getDesktopApiExt();
+    const social = api?.social;
+    if (!social) {
+      setSocialUiError('社交接口不可用');
+      return;
+    }
+
+    setSocialBusy(true);
+    try {
+      const res = await social.join({ roomId });
+      setSocialUiInfo(`已加入（status=${res.status}）`);
+    } catch (err: unknown) {
+      setSocialUiError(toReadableSocialError(err));
+    } finally {
+      setSocialBusy(false);
+    }
+  }
+
   React.useEffect(() => {
     setGalleryItems([]);
     setGalleryUiError('');
@@ -545,24 +907,13 @@ export function App() {
       galleryPollTimerRef.current = null;
     }
 
-    const api = window.desktopApi as unknown as DesktopApiExt | undefined;
+    const api = window.desktopApi;
     const gallery = api?.gallery;
-    const timeline = api?.timeline;
-    if (!gallery && !timeline) return;
-
-    if (gallery) {
-      void gallery
-        .list(activeSaveId)
-        .then((list) => setGalleryItems(Array.isArray(list) ? list : []))
-        .catch(() => {});
-    }
-
-    if (timeline) {
-      void timeline
-        .list({ saveId: activeSaveId, cursor: '0', limit: 20 })
-        .then((res) => setTimelineItems(Array.isArray(res?.items) ? res.items : []))
-        .catch(() => {});
-    }
+    if (!gallery) return;
+    void gallery
+      .list(activeSaveId)
+      .then((list) => setGalleryItems(Array.isArray(list) ? list : []))
+      .catch(() => {});
   }, [activeSaveId]);
 
   React.useEffect(() => {
@@ -577,7 +928,7 @@ export function App() {
 
     if (galleryPollTimerRef.current) return;
     galleryPollTimerRef.current = setInterval(() => {
-      const api = window.desktopApi as unknown as DesktopApiExt | undefined;
+      const api = window.desktopApi;
       const gallery = api?.gallery;
       if (!gallery) return;
 
@@ -664,6 +1015,55 @@ export function App() {
 
   function onFeedDragOver(e: React.DragEvent<HTMLButtonElement>) {
     e.preventDefault();
+  }
+
+  type ConsentPanelProps = {
+    testIdPanel: string;
+    testIdAccept: string;
+    testIdDecline: string;
+    title: string;
+    description: React.ReactNode;
+    acceptLabel: string;
+    declineLabel: string;
+    onAccept: () => void;
+    onDecline: () => void;
+  };
+
+  function ConsentPanel(props: ConsentPanelProps) {
+    return (
+      <div
+        data-testid={props.testIdPanel}
+        style={{
+          marginTop: 10,
+          borderRadius: 14,
+          border: '1px solid rgba(255,255,255,0.18)',
+          padding: 12,
+          background: 'rgba(0,0,0,0.18)'
+        }}
+      >
+        <div style={{ fontWeight: 600, marginBottom: 6 }}>{props.title}</div>
+        <div className="meta">{props.description}</div>
+        <div style={{ height: 10 }} />
+        <div className="row">
+          <button
+            type="button"
+            data-testid={props.testIdAccept}
+            onClick={props.onAccept}
+            className="btn-ok"
+          >
+            {props.acceptLabel}
+          </button>
+          <button
+            type="button"
+            data-testid={props.testIdDecline}
+            onClick={props.onDecline}
+            className="btn-warn"
+          >
+            {props.declineLabel}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   function onToggleVision() {
@@ -1116,41 +1516,22 @@ export function App() {
           </div>
 
           {visionConsentOpen ? (
-            <div
-              data-testid={TEST_IDS.visionConsentPanel}
-              style={{
-                marginTop: 10,
-                borderRadius: 14,
-                border: '1px solid rgba(255,255,255,0.18)',
-                padding: 12,
-                background: 'rgba(0,0,0,0.18)'
-              }}
-            >
-              <div style={{ fontWeight: 600, marginBottom: 6 }}>需要你的明确同意</div>
-              <div className="meta">
-                开启后，“发送测试截图”会通过主进程向服务端请求 `POST /api/v1/sensors/screenshot`。
-                默认隐私模式为 strict：不写入 WS、不落盘、不记录截图内容。
-              </div>
-              <div style={{ height: 10 }} />
-              <div className="row">
-                <button
-                  type="button"
-                  data-testid={TEST_IDS.visionConsentAccept}
-                  onClick={onVisionConsentAccept}
-                  className="btn-ok"
-                >
-                  同意并开启
-                </button>
-                <button
-                  type="button"
-                  data-testid={TEST_IDS.visionConsentDecline}
-                  onClick={onVisionConsentDecline}
-                  className="btn-warn"
-                >
-                  暂不开启
-                </button>
-              </div>
-            </div>
+            <ConsentPanel
+              testIdPanel={TEST_IDS.visionConsentPanel}
+              testIdAccept={TEST_IDS.visionConsentAccept}
+              testIdDecline={TEST_IDS.visionConsentDecline}
+              title="需要你的明确同意"
+              description={
+                <>
+                  开启后，“发送测试截图”会通过主进程向服务端请求 `POST /api/v1/sensors/screenshot`。默认隐私模式为 strict：不写入
+                  WS、不落盘、不记录截图内容。
+                </>
+              }
+              acceptLabel="同意并开启"
+              declineLabel="暂不开启"
+              onAccept={onVisionConsentAccept}
+              onDecline={onVisionConsentDecline}
+            />
           ) : null}
 
           {visionError ? <div className="danger">{visionError}</div> : null}
@@ -1251,12 +1632,7 @@ export function App() {
 
                     <div style={{ height: 8 }} />
                     {String(it.status) === 'completed' && imgSrc ? (
-                      <img
-                        className="gallery-img"
-                        src={imgSrc}
-                        alt={it.prompt || it.id}
-                        loading="lazy"
-                      />
+                      <img className="gallery-img" src={imgSrc} alt={it.prompt || it.id} loading="lazy" />
                     ) : (
                       <div className="gallery-placeholder">
                         {String(it.status) === 'failed' ? '生成失败' : '等待生成…'}
@@ -1332,6 +1708,291 @@ export function App() {
                   </div>
                 );
               })
+            )}
+          </div>
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.socialRoomCard}>
+          <h2>社交房间（最小 UI）</h2>
+          <div className="meta">
+            renderer 仅发起 IPC；主进程携带 token 调用 `/api/v1/social/*`；WS 收到 `ROOM_EVENT` 会追加到列表。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.socialCreateRoom}
+              onClick={onSocialCreateRoom}
+              disabled={socialBusy}
+              className={socialBusy ? '' : 'btn-ok'}
+            >
+              {socialBusy ? '处理中…' : '创建房间'}
+            </button>
+            <span className="pill" data-testid={TEST_IDS.socialRoomId}>
+              room_id：{socialRoomId || '（未创建）'}
+            </span>
+          </div>
+
+          <div style={{ height: 10 }} />
+          <div className="split">
+            <input
+              data-testid={TEST_IDS.socialTargetUserId}
+              value={socialTargetUserId}
+              onChange={(e) => setSocialTargetUserId(e.target.value)}
+              placeholder="好友 user_id（target_user_id）"
+              inputMode="text"
+            />
+            <button
+              type="button"
+              data-testid={TEST_IDS.socialInvite}
+              onClick={onSocialInvite}
+              disabled={socialBusy}
+            >
+              邀请
+            </button>
+          </div>
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.socialJoin}
+              onClick={onSocialJoin}
+              disabled={socialBusy}
+              className="btn-warn"
+            >
+              加入
+            </button>
+            <span className="pill">当前：{activeSaveId}</span>
+          </div>
+
+          {socialUiError ? <div className="danger">{socialUiError}</div> : null}
+          {socialUiInfo ? <div className="meta">{socialUiInfo}</div> : null}
+
+          <div style={{ height: 10 }} />
+          <div className="meta">房间事件（ROOM_EVENT）：</div>
+          <div
+            data-testid={TEST_IDS.socialEventList}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              maxHeight: 200,
+              overflow: 'auto'
+            }}
+          >
+            {socialRoomEvents.length === 0 ? (
+              <div className="meta">暂无事件（提示：先点击“连接”，再触发创建/邀请/加入）</div>
+            ) : (
+              socialRoomEvents.map((it) => (
+                <div
+                  key={it.key}
+                  data-testid={TEST_IDS.socialEventItem}
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    borderRadius: 12,
+                    padding: 10,
+                    background: 'rgba(0,0,0,0.12)'
+                  }}
+                >
+                  {it.text}
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.pluginsCard}>
+          <h2>Plugins（alpha / Task 21）</h2>
+          <div className="meta">
+            默认关闭；renderer 不直接 fetch，所有网络请求在主进程完成。开启后主进程会 fork 独立子进程，并在 vm context
+            执行插件代码（注意：vm 不是安全边界）。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.pluginsToggle}
+              aria-pressed={pluginsStatus?.enabled ?? false}
+              onClick={onPluginsToggle}
+              disabled={pluginsBusy}
+              className={pluginsStatus?.enabled ? 'btn-ok' : 'btn-warn'}
+            >
+              {pluginsStatus?.enabled ? '已开启执行（点击撤回）' : '默认关闭（点击申请开启）'}
+            </button>
+            <span className="pill" data-testid={TEST_IDS.pluginsStatus}>
+              host：{pluginsStatus?.running ? '运行中' : '未运行'}
+            </span>
+            <span className="pill">菜单项：{pluginsStatus?.menuItems?.length ?? 0}</span>
+          </div>
+
+          {pluginsConsentOpen ? (
+            <ConsentPanel
+              testIdPanel={TEST_IDS.pluginsConsentPanel}
+              testIdAccept={TEST_IDS.pluginsConsentAccept}
+              testIdDecline={TEST_IDS.pluginsConsentDecline}
+              title="需要你的明确同意"
+              description={
+                <>
+                  开启后，主进程可能会下载并执行“已审核（approved）插件”的代码（独立子进程 + vm context；注意：vm 不是安全边界）。
+                  你可以随时点击“撤回”关闭执行。
+                  另外，远端 kill-switch（`feature_flags.plugins_enabled`）仍可能阻止实际运行。
+                </>
+              }
+              acceptLabel="同意并开启执行"
+              declineLabel="暂不开启"
+              onAccept={onPluginsConsentAccept}
+              onDecline={onPluginsConsentDecline}
+            />
+          ) : null}
+
+          <div style={{ height: 10 }} />
+          <div className="split">
+            <button
+              type="button"
+              data-testid={TEST_IDS.pluginsRefresh}
+              onClick={onPluginsRefresh}
+              disabled={pluginsBusy}
+              className="btn-warn"
+            >
+              {pluginsBusy ? '拉取中…' : '拉取 approved 列表'}
+            </button>
+            <select
+              data-testid={TEST_IDS.pluginsSelect}
+              value={pluginsSelectedKey}
+              onChange={(e) => setPluginsSelectedKey(e.target.value)}
+              disabled={pluginsBusy || pluginsApproved.length === 0}
+            >
+              {pluginsApproved.length === 0 ? (
+                <option value="">（未拉取列表）</option>
+              ) : (
+                pluginsApproved.map((it) => (
+                  <option key={makePluginKey(it)} value={makePluginKey(it)}>
+                    {it.name} ({it.id}@{it.version})
+                  </option>
+                ))
+              )}
+            </select>
+          </div>
+
+          <div style={{ height: 10 }} />
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.pluginsInstall}
+              onClick={onPluginsInstall}
+              disabled={pluginsBusy}
+              className="btn-ok"
+            >
+              {pluginsBusy ? '处理中…' : '安装'}
+            </button>
+            <span className="pill">
+              已安装：
+              {pluginsStatus?.installed
+                ? `${pluginsStatus.installed.name || pluginsStatus.installed.id}@${pluginsStatus.installed.version}`
+                : '（无）'}
+            </span>
+          </div>
+
+          {pluginsUiError ? (
+            <div className="danger" data-testid={TEST_IDS.pluginsError}>
+              {pluginsUiError}
+            </div>
+          ) : null}
+          {!pluginsUiError && pluginsStatus?.lastError ? <div className="danger">{pluginsStatus.lastError}</div> : null}
+
+          <div style={{ height: 10 }} />
+          <div className="meta">插件菜单项（addMenuItem）：</div>
+          <div
+            data-testid={TEST_IDS.pluginsMenuList}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              maxHeight: 200,
+              overflow: 'auto'
+            }}
+          >
+            {!pluginsStatus?.enabled ? (
+              <div className="meta">执行已关闭：菜单项为空（符合 alpha 安全默认）</div>
+            ) : (pluginsStatus?.menuItems?.length ?? 0) === 0 ? (
+              <div className="meta">暂无菜单项（提示：需要插件在启动时调用 addMenuItem）</div>
+            ) : (
+              (pluginsStatus?.menuItems ?? []).map((it) => (
+                <div
+                  key={`${it.pluginId}:${it.id}`}
+                  data-testid={TEST_IDS.pluginsMenuItem}
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    borderRadius: 12,
+                    padding: 10,
+                    background: 'rgba(0,0,0,0.12)'
+                  }}
+                >
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span className="pill">{it.label}</span>
+                    <span className="meta">{it.id}</span>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.ugcCard}>
+          <h2>UGC 工坊（只拉取 approved）</h2>
+          <div className="meta">
+            renderer 仅发起 IPC；主进程携带 token 调用 `GET /api/v1/ugc/assets?status=approved`。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.ugcRefresh}
+              onClick={onUgcRefresh}
+              disabled={ugcBusy}
+              className="btn-warn"
+            >
+              {ugcBusy ? '刷新中…' : '刷新'}
+            </button>
+            <span className="pill">只看：approved</span>
+          </div>
+
+          {ugcUiError ? <div className="danger">{ugcUiError}</div> : null}
+
+          <div style={{ height: 10 }} />
+          <div
+            data-testid={TEST_IDS.ugcList}
+            style={{
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 10,
+              maxHeight: 200,
+              overflow: 'auto'
+            }}
+          >
+            {ugcAssets.length === 0 ? (
+              <div className="meta">暂无 approved 资源（点击“刷新”）</div>
+            ) : (
+              ugcAssets.map((it) => (
+                <div
+                  key={it.id}
+                  data-testid={TEST_IDS.ugcItem}
+                  style={{
+                    border: '1px solid rgba(255,255,255,0.14)',
+                    borderRadius: 12,
+                    padding: 10,
+                    background: 'rgba(0,0,0,0.12)'
+                  }}
+                >
+                  <div className="row" style={{ justifyContent: 'space-between' }}>
+                    <span className="pill">{it.asset_type || 'unknown'}</span>
+                    <span className="meta">{it.id}</span>
+                  </div>
+                </div>
+              ))
             )}
           </div>
         </section>

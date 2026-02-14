@@ -2,12 +2,23 @@
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownMemberType=false
 # pyright: reportUnknownParameterType=false
+# pyright: reportMissingTypeStubs=false
+# pyright: reportUnusedFunction=false
 from __future__ import annotations
 
 import os
 
-from celery import Celery
+from celery import Celery, signals
 from celery.schedules import crontab
+
+from app.core.config import settings
+from app.core.logging import configure_logging
+
+
+@signals.setup_logging.connect
+def _setup_celery_logging(**_kwargs: object) -> None:
+    # Celery 默认会配置/接管 logging；这里统一走应用的 formatter（含脱敏）。
+    configure_logging(settings.log_level)
 
 
 def _env_bool(name: str, default: bool) -> bool:
@@ -23,21 +34,26 @@ def _env_bool(name: str, default: bool) -> bool:
 
 
 def create_celery_app() -> Celery:
+    configure_logging(settings.log_level)
+
     broker_url = os.getenv("CELERY_BROKER_URL", "redis://localhost:6379/0")
     result_backend = os.getenv("CELERY_RESULT_BACKEND", broker_url)
 
     app = Celery("para", broker=broker_url, backend=result_backend)
 
+    app.conf.worker_hijack_root_logger = False
+    app.conf.worker_redirect_stdouts = False
+
     app.conf.task_always_eager = _env_bool("CELERY_TASK_ALWAYS_EAGER", False)
     app.conf.task_eager_propagates = _env_bool("CELERY_TASK_EAGER_PROPAGATES", True)
 
-    app.conf.timezone = os.getenv("CELERY_TIMEZONE", "UTC")
+    app.conf["timezone"] = os.getenv("CELERY_TIMEZONE", "UTC")
     app.conf.enable_utc = True
     app.conf.accept_content = ["json"]
     app.conf.task_serializer = "json"
     app.conf.result_serializer = "json"
 
-    app.autodiscover_tasks(["app.workers"], related_name="tasks")
+    _ = app.autodiscover_tasks(["app.workers"], related_name="tasks")
 
     dev_every_minute = _env_bool("CELERY_BEAT_DEV_EVERY_MINUTE", True)
     if dev_every_minute:
@@ -46,7 +62,12 @@ def create_celery_app() -> Celery:
                 "task": "app.workers.tasks.dreams.task_12_generate_dreams_for_all_saves",
                 "schedule": crontab(minute="*/1"),
                 "args": (),
-            }
+            },
+            "task-18-timeline-periodic-tick": {
+                "task": "app.workers.tasks.timeline.task_18_generate_timeline_events_for_all_saves",
+                "schedule": crontab(minute="*/1"),
+                "args": (),
+            },
         }
 
     return app

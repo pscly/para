@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import base64
 import binascii
+import json
+import logging
+from datetime import datetime, timezone
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, status
@@ -17,15 +20,22 @@ from sqlalchemy.orm import Session
 import app.ws.v1 as ws_v1
 from app.api.v1.saves import require_user_id
 from app.core.security import JSONValue
-from app.db.models import Save
+from app.db.models import AuditLog, Save
 from app.db.session import get_db
 
 
 router = APIRouter(prefix="/sensors", tags=["sensors"])
 
 
+logger = logging.getLogger(__name__)
+
+
 MAX_SCREENSHOT_BYTES = 256 * 1024
 MAX_SCREENSHOT_B64_CHARS = 360 * 1024
+
+
+def _canonical_json(obj: object) -> str:
+    return json.dumps(obj, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
 
 
 class ScreenshotRequest(BaseModel):
@@ -199,6 +209,32 @@ async def sensors_screenshot(
             )
         except Exception:
             pass
+
+    meta = {
+        "bytes": len(img_bytes),
+        "width": dims[0] if dims else None,
+        "height": dims[1] if dims else None,
+        "privacy_mode": payload.privacy_mode,
+        "emit_ws_event": should_emit,
+    }
+    logger.info(
+        "sensors.screenshot processed save_id=%s meta=%s",
+        payload.save_id,
+        _canonical_json(meta),
+    )
+
+    now = datetime.now(tz=timezone.utc).replace(tzinfo=None)
+    db.add(
+        AuditLog(
+            actor=f"user:{user_id}",
+            action="vision.screenshot",
+            target_type="save",
+            target_id=payload.save_id,
+            metadata_json=_canonical_json(meta),
+            created_at=now,
+        )
+    )
+    db.commit()
 
     return ScreenshotResponse(suggestion=suggestion)
 

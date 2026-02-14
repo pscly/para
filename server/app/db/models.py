@@ -7,13 +7,10 @@
 # pyright: reportUnknownArgumentType=false
 # pyright: reportUnknownParameterType=false
 # pyright: reportUnknownVariableType=false
-# pyright: reportAny=false
-# pyright: reportExplicitAny=false
-# pyright: reportUnannotatedClassAttribute=false
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Callable, Optional
 from uuid import uuid4
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
@@ -37,13 +34,13 @@ class Vector(UserDefinedType[list[float]]):
             raise ValueError("Vector dimensions must be positive")
         self.dimensions = dimensions
 
-    def get_col_spec(self, **_kw: Any) -> str:
+    def get_col_spec(self, **_kw: object) -> str:
         return f"vector({self.dimensions})"
 
-    def bind_processor(self, dialect: Dialect) -> Callable[[Any], Any] | None:
+    def bind_processor(self, dialect: Dialect) -> Callable[[object], object] | None:
         dims = self.dimensions
 
-        def process(value: Any) -> str | None:
+        def process(value: object) -> str | None:
             if value is None:
                 return None
             if not isinstance(value, (list, tuple)):
@@ -56,8 +53,10 @@ class Vector(UserDefinedType[list[float]]):
 
         return process
 
-    def result_processor(self, dialect: Dialect, coltype: Any) -> Callable[[Any], Any] | None:
-        def process(value: Any) -> list[float] | None:
+    def result_processor(
+        self, dialect: Dialect, coltype: object
+    ) -> Callable[[object], object] | None:
+        def process(value: object) -> list[float] | None:
             if value is None:
                 return None
             if isinstance(value, (list, tuple)):
@@ -436,3 +435,165 @@ class SavePersonaBinding(Base):
 
     save: Mapped[Save] = relationship("Save", back_populates="persona_binding")
     persona: Mapped[Persona] = relationship("Persona", back_populates="save_bindings")
+
+
+class Room(Base):
+    __tablename__: str = "rooms"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    room_type: Mapped[str] = mapped_column(String(50), nullable=False, default="social")
+    created_by_user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+    members: Mapped[list["RoomMember"]] = relationship(
+        "RoomMember",
+        back_populates="room",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class RoomMember(Base):
+    __tablename__: str = "room_members"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("room_id", "user_id", name="uq_room_member_room_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    room_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("rooms.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="member")
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="invited")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    joined_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+
+    room: Mapped[Room] = relationship("Room", back_populates="members")
+
+
+class UgcAsset(Base):
+    __tablename__: str = "ugc_assets"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    uploaded_by_user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+
+    asset_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    manifest_json: Mapped[str] = mapped_column(Text(), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True, nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text(), nullable=False, default="")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+
+class AuditLog(Base):
+    __tablename__: str = "audit_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    actor: Mapped[str] = mapped_column(String(50), nullable=False)
+    action: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False, default="ugc_asset")
+    target_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+
+    metadata_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+
+class PluginPackage(Base):
+    __tablename__: str = "plugin_packages"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("plugin_id", "version", name="uq_plugin_package_plugin_version"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    plugin_id: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    version: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    entry: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    permissions_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+    manifest_json: Mapped[str] = mapped_column(Text(), nullable=False)
+
+    code_text: Mapped[str] = mapped_column(Text(), nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    status: Mapped[str] = mapped_column(String(20), default="pending", index=True, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class AdminUser(Base):
+    __tablename__: str = "admin_users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+
+    role: Mapped[str] = mapped_column(String(20), nullable=False, default="operator")
+    is_active: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class AdminKV(Base):
+    __tablename__: str = "admin_kv"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("namespace", "key", name="uq_admin_kv_namespace_key"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    namespace: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    key: Mapped[str] = mapped_column(String(100), nullable=False)
+    value_json: Mapped[str] = mapped_column(Text(), nullable=False, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )

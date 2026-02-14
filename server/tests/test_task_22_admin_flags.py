@@ -1,0 +1,126 @@
+# pyright: reportMissingImports=false
+# pyright: reportUnknownVariableType=false
+# pyright: reportUnknownMemberType=false
+
+from __future__ import annotations
+
+import json
+import uuid
+
+from fastapi.testclient import TestClient
+from sqlalchemy import select, text
+from typing import cast
+
+from app.core.security import hash_password
+from app.db.base import Base
+from app.db.models import AdminKV, AdminUser
+from app.db.session import SessionLocal, engine
+from app.main import app
+
+
+with engine.connect() as conn:
+    _ = conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+    conn.commit()
+Base.metadata.create_all(bind=engine)
+
+
+def _random_email() -> str:
+    return f"admin-{uuid.uuid4().hex}@example.com"
+
+
+def _create_admin(*, role: str, password: str) -> AdminUser:
+    with SessionLocal() as db:
+        admin = AdminUser(
+            email=_random_email(),
+            password_hash=hash_password(password),
+            role=role,
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        return admin
+
+
+def _admin_login(client: TestClient, *, email: str, password: str) -> str:
+    resp = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert resp.status_code == 200, resp.text
+    data = cast(dict[str, object], resp.json())
+    assert data.get("token_type") == "bearer"
+    token = data.get("access_token")
+    assert isinstance(token, str) and token != ""
+    return token
+
+
+def test_task_22_admin_flags_rbac_and_user_get() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    op_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+    operator = _create_admin(role="operator", password=op_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+
+        put_resp = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"plugins_enabled": True},
+        )
+        assert put_resp.status_code == 200, put_resp.text
+        put_data = cast(dict[str, object], put_resp.json())
+        assert put_data.get("plugins_enabled") is True
+
+        ff_resp = client.get("/api/v1/feature_flags")
+        assert ff_resp.status_code == 200, ff_resp.text
+        ff = cast(dict[str, object], ff_resp.json())
+        assert isinstance(ff.get("generated_at"), str) and ff.get("generated_at")
+        flags = ff.get("feature_flags")
+        assert isinstance(flags, dict)
+        assert flags.get("plugins_enabled") is True
+
+        op_token = _admin_login(client, email=operator.email, password=op_pw)
+        op_headers = {"Authorization": f"Bearer {op_token}"}
+
+        get_admin_flags = client.get("/api/v1/admin/config/feature_flags", headers=op_headers)
+        assert get_admin_flags.status_code == 200, get_admin_flags.text
+        admin_flags = cast(dict[str, object], get_admin_flags.json())
+        assert admin_flags.get("plugins_enabled") is True
+
+        op_put = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=op_headers,
+            json={"plugins_enabled": False},
+        )
+        assert op_put.status_code == 403, op_put.text
+
+    expected_raw = json.dumps(
+        {"plugins_enabled": True},
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    with SessionLocal() as db:
+        row = db.execute(
+            select(AdminKV).where(AdminKV.namespace == "feature_flags", AdminKV.key == "global")
+        ).scalar_one_or_none()
+        assert row is not None
+        assert row.value_json == expected_raw
+
+
+def test_task_22_admin_flags_put_requires_object_400() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+        resp = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json="",
+        )
+        assert resp.status_code == 400, resp.text
