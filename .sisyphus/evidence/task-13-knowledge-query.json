@@ -1,0 +1,39 @@
+{
+  "task": 13,
+  "save_id": "c03fa2ea-ab6a-46b1-848a-eb31b91732c0",
+  "upload": {
+    "material": {
+      "id": "9838dc30-fb9d-4570-ba7a-b113f360bded",
+      "save_id": "c03fa2ea-ab6a-46b1-848a-eb31b91732c0",
+      "filename": "note.md",
+      "content_type": "text/markdown",
+      "status": "pending",
+      "error": null,
+      "created_at": "2026-02-14T06:53:08.756849",
+      "updated_at": "2026-02-14T06:53:08.763212"
+    }
+  },
+  "status": {
+    "id": "9838dc30-fb9d-4570-ba7a-b113f360bded",
+    "save_id": "c03fa2ea-ab6a-46b1-848a-eb31b91732c0",
+    "filename": "note.md",
+    "content_type": "text/markdown",
+    "status": "indexed",
+    "error": null,
+    "created_at": "2026-02-14T06:53:08.756849",
+    "updated_at": "2026-02-14T06:53:08.776574"
+  },
+  "query": {
+    "answer": "# Notes\n\nThis line is important: PARA_KNOWLEDGE_MAGIC_SENTENCE.\n\nMore text.",
+    "citations": [
+      {
+        "chunk_id": "0afc5657-d5ef-4caa-be1d-5cc9776e4c35",
+        "material_id": "9838dc30-fb9d-4570-ba7a-b113f360bded",
+        "chunk_index": 0,
+        "distance": 0.6437214011719172,
+        "score": 0.6083756038505274,
+        "snippet": "# Notes  This line is important: PARA_KNOWLEDGE_MAGIC_SENTENCE.  More text."
+      }
+    ]
+  }
+}

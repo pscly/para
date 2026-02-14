@@ -1,0 +1,16 @@
+Task 1 Evidence: local deps bootstrap
+
+Compose config validation (no .env required):
+- docker compose -f docker-compose.yml config -> OK
+
+Services status (with .env.example):
+- docker compose --env-file .env.example ps
+  - para-postgres (pgvector/pgvector:pg16) -> healthy, 5432:5432
+  - para-redis (redis:7-alpine) -> healthy, 6379:6379
+
+pgvector extension availability (inside postgres container):
+- SELECT name, default_version, installed_version FROM pg_available_extensions WHERE name='vector';
+  - name=vector, default_version=0.8.1, installed_version is NULL (available but not yet enabled)
+
+Redis ping:
+- redis-cli ping -> PONG

@@ -1,0 +1,12 @@
+task-9 save isolation evidence
+save_a_id=76e12b1a-ea70-4e0c-a63e-386940a683cf
+save_b_id=9343ce74-1a70-4a13-92fe-60809ae05406
+persona_a_id=d684cca7-2062-48b4-b152-383d199ca551
+persona_b_id=3f8622f5-817b-4c33-84cd-73ea86a2470f
+replay_save_a_text=AI: apple
+replay_save_b_text=AI: banana
+assert_replay_a_contains_apple=True
+assert_replay_a_contains_banana=False
+assert_replay_b_contains_banana=True
+assert_replay_b_contains_apple=False
+assert_conclusion_history_not_mixed=True

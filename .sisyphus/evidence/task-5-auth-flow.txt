@@ -1,0 +1,17 @@
+Task 5 Evidence: Auth + device sessions
+
+Verified via pytest + FastAPI TestClient:
+- register -> 201 returns access_token + refresh_token
+- duplicate register -> 409
+- me (Authorization: Bearer <access_token>) -> 200 returns user_id + email
+- login wrong password -> 401
+- refresh rotates: new refresh works, old refresh becomes 401
+- logout (Authorization: Bearer <access_token>) revokes refresh tokens; subsequent refresh -> 401
+
+Commands used:
+- (server) uv run pytest
+- (root) ./scripts/generate-contracts.sh
+
+Notes:
+- refresh token is returned to client as raw string; server stores only sha256 hash in DB.
+- access token is HS256-signed token implemented in stdlib (not full JWT library yet).

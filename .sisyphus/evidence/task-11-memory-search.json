@@ -1,0 +1,25 @@
+{
+  "task": 11,
+  "save_id": "cb6c2749-83e7-4a8f-aebd-8c845b535eba",
+  "memory_id": "433c4364-d190-4966-b17b-cbd055adf39d",
+  "ingest": {
+    "id": "433c4364-d190-4966-b17b-cbd055adf39d",
+    "save_id": "cb6c2749-83e7-4a8f-aebd-8c845b535eba",
+    "created_at": "2026-02-14T06:53:08.162265"
+  },
+  "search_before_delete": [
+    {
+      "id": "433c4364-d190-4966-b17b-cbd055adf39d",
+      "content": "\u6211\u559c\u6b22\u84dd\u8272",
+      "source": "test",
+      "trusted": false,
+      "distance": 0.9928820724533173,
+      "score": 0.5017858376180584
+    }
+  ],
+  "delete": {
+    "id": "433c4364-d190-4966-b17b-cbd055adf39d",
+    "deleted_at": "2026-02-14T06:53:08.203303"
+  },
+  "search_after_delete": []
+}

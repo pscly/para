@@ -1,0 +1,38 @@
+# Local dev deps: Postgres(pgvector) + Redis
+# All vars have defaults so `docker compose config` works without .env.
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: ${COMPOSE_PROJECT_NAME:-para}-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-para}
+      POSTGRES_USER: ${POSTGRES_USER:-para}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-para}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-para} -d ${POSTGRES_DB:-para}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: ${COMPOSE_PROJECT_NAME:-para}-redis
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  pg_data:
+  redis_data:

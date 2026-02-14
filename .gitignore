@@ -1,0 +1,11 @@
+# Secrets / credentials
+.env
+AGENTS.md
+
+# App runtime data
+server/.data/
+
+# Python virtualenv & caches
+server/.venv/
+**/__pycache__/
+**/*.pyc
