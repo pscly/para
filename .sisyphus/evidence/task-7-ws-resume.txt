@@ -1,11 +1,11 @@
 task-7 ws v1 resume evidence
-user_id=f03583d9-e664-4a55-a4ce-5ac43d48e692
-save_id=save-034d1e8d2c264a598a7b7f104b1185f0
+user_id=36f01026-9bdf-44e2-85ce-f342262924d0
+save_id=save-ba628362f92a44109ccd2d5d2fed9eb8
 resume_from=4
 seqs_conn1=[1, 2, 3, 4]
 seqs_conn2=[5, 6, 7]
-server_event_ids_conn1=['f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:1', 'f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:2', 'f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:3', 'f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:4']
-server_event_ids_conn2=['f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:5', 'f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:6', 'f03583d9-e664-4a55-a4ce-5ac43d48e692:save-034d1e8d2c264a598a7b7f104b1185f0:7']
+server_event_ids_conn1=['36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:1', '36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:2', '36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:3', '36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:4']
+server_event_ids_conn2=['36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:5', '36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:6', '36f01026-9bdf-44e2-85ce-f342262924d0:save-ba628362f92a44109ccd2d5d2fed9eb8:7']
 assert_seqs_continuous_conn1=True
 assert_seqs_continuous_conn2=True
 assert_server_event_id_unique=True

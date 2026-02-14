@@ -1,0 +1,22 @@
+task-19 room event evidence
+room_id=3f9cb11f-f11a-4579-b618-bca66a8e5dd9
+user1_id=4c3b4d36-a781-4eab-bb53-727d48672dff
+user2_id=4f7a41f1-f8af-4e0d-b2d8-9e6616066134
+save1_id=7a658984-5255-4a78-b2d6-8d80a1135096
+save2_id=85f11ab1-65e1-4a3d-9fd3-75c5ff99c524
+create_status=201
+create_body={'id': '3f9cb11f-f11a-4579-b618-bca66a8e5dd9', 'room_type': 'social', 'created_by_user_id': '4c3b4d36-a781-4eab-bb53-727d48672dff', 'created_at': '2026-02-14T16:23:05.544670Z'}
+invite_status=200
+invite_body={'room_id': '3f9cb11f-f11a-4579-b618-bca66a8e5dd9', 'actor_user_id': '4c3b4d36-a781-4eab-bb53-727d48672dff', 'target_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'status': 'invited'}
+join_status=200
+join_body={'room_id': '3f9cb11f-f11a-4579-b618-bca66a8e5dd9', 'actor_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'target_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'status': 'joined'}
+ws1_frame_type=ROOM_EVENT
+ws1_frame_seq=3
+ws1_frame_server_event_id=4c3b4d36-a781-4eab-bb53-727d48672dff:7a658984-5255-4a78-b2d6-8d80a1135096:3
+ws1_frame_payload={'event': 'ROOM_JOINED', 'room_id': '3f9cb11f-f11a-4579-b618-bca66a8e5dd9', 'actor_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'target_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'created_at': '2026-02-14T16:23:05.598964Z'}
+ws2_frame_type=ROOM_EVENT
+ws2_frame_seq=2
+ws2_frame_server_event_id=4f7a41f1-f8af-4e0d-b2d8-9e6616066134:85f11ab1-65e1-4a3d-9fd3-75c5ff99c524:2
+ws2_frame_payload={'event': 'ROOM_JOINED', 'room_id': '3f9cb11f-f11a-4579-b618-bca66a8e5dd9', 'actor_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'target_user_id': '4f7a41f1-f8af-4e0d-b2d8-9e6616066134', 'created_at': '2026-02-14T16:23:05.598964Z'}
+assert_ws1_received_room_joined=True
+assert_ws2_received_room_joined=True

@@ -49,3 +49,28 @@
 
 ## 2026-02-14 Client 拖拽区可访问性
 - `div` 上绑定 drag/drop 事件容易触发可访问性/静态交互 lint（例如提示 role=button 时应直接用 `<button>`）；在不影响测试选择器的前提下，优先使用 `<button type="button">` 作为 dropzone 容器。
+
+## 2026-02-14 Task 17 e2e：Electron dist 缺失
+- 现象：`npm -C client run e2e` 可能在 `import electronPath from 'electron'` 时抛 `Electron failed to install correctly`。
+- 原因：`electron` 的二进制未下载到 `client/node_modules/electron/dist/`（postinstall 未完成/网络波动）。
+- 解决：执行 `ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/ node client/node_modules/electron/install.js` 后重跑 e2e。
+
+## 2026-02-14 Task 21 Plugins runtime（alpha）风险/未决
+- `vm` 的 `timeout` 只对 `runInContext()` 这类“在 vm 内执行的脚本”可靠；如果把回调直接在宿主函数里调用，可能绕过 timeout。当前菜单点击回调通过 `vm.Script(...).runInContext({ timeout })` 在 vm 内触发以避免该坑。
+- `plugins:output` 当前广播到所有窗口；未来如果多个窗口都订阅，UI 侧可能需要去重/做窗口来源区分。
+- `plugins:menuClick` 采用 request/response（带 requestId）等待 host 回执；host 崩溃/卡死会触发主进程 timeout（invoke 抛 `TIMEOUT`），renderer 侧需要按需提示。
+
+## 2026-02-14 Task 22 Admin（Server）风险/未决
+- 目前仅提供 admin 登录 + RBAC 端点；尚未提供“初始化/创建第一个 super_admin”的管理通道（测试通过直接写库创建）。生产环境需要明确的 bootstrap/migration/一次性脚本策略。
+- `admin_access_token_secret` 具有 dev 默认值；上线必须通过环境变量覆盖为高强度随机值，并纳入密钥轮换策略。
+
+## 2026-02-14 Feature flags polling（Client main）
+- 默认安全策略：首次成功拉取 `GET /api/v1/feature_flags` 之前，客户端会把 `plugins_enabled` 视为关闭；如果 endpoint 缺失/离线不可达，插件 host 将不会自动启动（即使本地 enabled=true）。
+
+## 2026-02-14 Task 23 日志脱敏兜底注意事项
+- `RedactingFormatter` 会对最终日志字符串做正则替换，安全优先；含长 base64 串或类似 token 形态的调试输出可能被过度脱敏（预期行为）。
+- Celery 侧启用同一 logging 配置并禁用 worker hijack root logger；若未来升级 Celery/引入自定义 logging config，需要再次确认脱敏 formatter 仍在生效链路中。
+
+## 2026-02-14 Task 23 脱敏规则收敛
+- 避免按通用字段名 `token` 做替换：优先匹配 `Authorization: Bearer`、`access_token/refresh_token`、`image_base64`、`data:image/*;base64,` 等明确模式，减少误伤（例如 WS 的 `CHAT_TOKEN`）。
+- Celery 建议同时设置 `worker_hijack_root_logger=False` 并挂接 `signals.setup_logging`，避免 Celery 重新配置 logging 导致脱敏 formatter 被覆盖。

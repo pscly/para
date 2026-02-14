@@ -1,0 +1,312 @@
+
+========== [TASK] 25 Alpha E2E QA Runner ==========
+repo_root=/root/1codes/1para
+evidence_file=/root/1codes/1para/.sisyphus/evidence/task-25-qa-alpha.txt
+
+========== [STEP START] CI (contracts + server pytest + client unit) ==========
++ ./scripts/ci.sh
+
+========== [TASK] 24 CI/本地一键验收脚本 ==========
+Repo root: /root/1codes/1para
+Evidence: /root/1codes/1para/.sisyphus/evidence/task-24-ci.txt
+
+========== [STEP START] 契约漂移检查（OpenAPI + TS 生成物） ==========
++ ./scripts/generate-contracts.sh --check
+
+> ai-girlfriend-client@0.0.0 gen:api
+> node -e "require('fs').mkdirSync('src/gen',{recursive:true})" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts
+
+✨ openapi-typescript 7.13.0
+🚀 ../contracts/openapi.json → src/gen/openapi.ts [180.4ms]
+
+========== [STEP OK] 契约漂移检查（OpenAPI + TS 生成物） ==========
+
+========== [STEP START] Server 测试（pytest） ==========
++ (cd server && uv run pytest)
+============================= test session starts ==============================
+platform linux -- Python 3.12.3, pytest-9.0.2, pluggy-1.6.0
+rootdir: /root/1codes/1para/server
+configfile: pyproject.toml
+testpaths: tests
+plugins: anyio-4.12.1
+collected 29 items
+
+tests/test_auth.py .....                                                 [ 17%]
+tests/test_db.py .                                                       [ 20%]
+tests/test_health.py .                                                   [ 24%]
+tests/test_task_11_memory_search.py .                                    [ 27%]
+tests/test_task_12_dream_event.py .                                      [ 31%]
+tests/test_task_13_knowledge_query.py .                                  [ 34%]
+tests/test_task_15_vision_screenshot.py ...                              [ 44%]
+tests/test_task_16_sensors_event.py ....                                 [ 58%]
+tests/test_task_17_gallery.py .                                          [ 62%]
+tests/test_task_18_timeline.py .                                         [ 65%]
+tests/test_task_19_room_event.py .                                       [ 68%]
+tests/test_task_20_ugc_approve.py .                                      [ 72%]
+tests/test_task_21_plugins.py .                                          [ 75%]
+tests/test_task_22_admin_flags.py ..                                     [ 82%]
+tests/test_task_23_privacy_audit.py .                                    [ 86%]
+tests/test_task_9_save_isolation.py .                                    [ 89%]
+tests/test_ws_v1_chat_stream.py ..                                       [ 96%]
+tests/test_ws_v1_resume.py .                                             [100%]
+
+=============================== warnings summary ===============================
+tests/test_auth.py: 17 warnings
+tests/test_task_11_memory_search.py: 4 warnings
+tests/test_task_12_dream_event.py: 4 warnings
+tests/test_task_13_knowledge_query.py: 5 warnings
+tests/test_task_15_vision_screenshot.py: 11 warnings
+tests/test_task_16_sensors_event.py: 15 warnings
+tests/test_task_17_gallery.py: 4 warnings
+tests/test_task_18_timeline.py: 4 warnings
+tests/test_task_19_room_event.py: 8 warnings
+tests/test_task_20_ugc_approve.py: 3 warnings
+tests/test_task_21_plugins.py: 3 warnings
+tests/test_task_22_admin_flags.py: 6 warnings
+tests/test_task_23_privacy_audit.py: 6 warnings
+tests/test_task_9_save_isolation.py: 7 warnings
+tests/test_ws_v1_chat_stream.py: 6 warnings
+tests/test_ws_v1_resume.py: 3 warnings
+  /root/1codes/1para/server/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
+
+tests/test_auth.py: 5 warnings
+tests/test_task_11_memory_search.py: 1 warning
+tests/test_task_12_dream_event.py: 1 warning
+tests/test_task_13_knowledge_query.py: 1 warning
+tests/test_task_15_vision_screenshot.py: 3 warnings
+tests/test_task_16_sensors_event.py: 4 warnings
+tests/test_task_17_gallery.py: 1 warning
+tests/test_task_18_timeline.py: 1 warning
+tests/test_task_19_room_event.py: 2 warnings
+tests/test_task_20_ugc_approve.py: 1 warning
+tests/test_task_21_plugins.py: 1 warning
+tests/test_task_23_privacy_audit.py: 1 warning
+tests/test_task_9_save_isolation.py: 1 warning
+tests/test_ws_v1_chat_stream.py: 2 warnings
+tests/test_ws_v1_resume.py: 1 warning
+  /root/1codes/1para/server/app/api/v1/auth.py:115: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
+
+tests/test_auth.py: 5 warnings
+tests/test_task_11_memory_search.py: 1 warning
+tests/test_task_12_dream_event.py: 1 warning
+tests/test_task_13_knowledge_query.py: 1 warning
+tests/test_task_15_vision_screenshot.py: 3 warnings
+tests/test_task_16_sensors_event.py: 4 warnings
+tests/test_task_17_gallery.py: 1 warning
+tests/test_task_18_timeline.py: 1 warning
+tests/test_task_19_room_event.py: 2 warnings
+tests/test_task_20_ugc_approve.py: 1 warning
+tests/test_task_21_plugins.py: 1 warning
+tests/test_task_23_privacy_audit.py: 1 warning
+tests/test_task_9_save_isolation.py: 1 warning
+tests/test_ws_v1_chat_stream.py: 2 warnings
+tests/test_ws_v1_resume.py: 1 warning
+  /root/1codes/1para/server/app/api/v1/auth.py:124: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    expires_at=datetime.utcnow() + timedelta(days=settings.auth_refresh_token_ttl_days),
+
+tests/test_auth.py::test_refresh_rotates_old_becomes_invalid_and_new_works
+tests/test_auth.py::test_refresh_rotates_old_becomes_invalid_and_new_works
+tests/test_auth.py::test_refresh_rotates_old_becomes_invalid_and_new_works
+tests/test_auth.py::test_logout_revokes_refresh_token
+  /root/1codes/1para/server/app/api/v1/auth.py:167: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_auth.py::test_logout_revokes_refresh_token
+  /root/1codes/1para/server/app/api/v1/auth.py:210: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_11_memory_search.py::test_task_11_memory_ingest_search_delete_writes_evidence
+  /root/1codes/1para/server/app/api/v1/memory.py:116: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_11_memory_search.py::test_task_11_memory_ingest_search_delete_writes_evidence
+  /root/1codes/1para/server/app/api/v1/memory.py:207: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_12_dream_event.py::test_task_12_dream_entry_created_and_ws_replay_writes_evidence
+  /root/1codes/1para/server/app/workers/tasks/dreams.py:24: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_13_knowledge_query.py::test_task_13_knowledge_upload_index_query_writes_evidence
+  /root/1codes/1para/server/app/api/v1/knowledge.py:173: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_13_knowledge_query.py::test_task_13_knowledge_upload_index_query_writes_evidence
+  /root/1codes/1para/server/app/workers/tasks/knowledge.py:90: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_17_gallery.py::test_task_17_gallery_generate_complete_list_writes_files
+  /root/1codes/1para/server/app/api/v1/gallery.py:125: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_17_gallery.py::test_task_17_gallery_generate_complete_list_writes_files
+  /root/1codes/1para/server/app/workers/tasks/gallery.py:36: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_18_timeline.py::test_task_18_timeline_simulate_then_list_and_ws_replay
+  /root/1codes/1para/server/app/workers/tasks/timeline.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
+  /root/1codes/1para/server/app/api/v1/social.py:133: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
+  /root/1codes/1para/server/app/api/v1/social.py:178: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
+  /root/1codes/1para/server/app/api/v1/social.py:239: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_20_ugc_approve.py::test_task_20_ugc_upload_approve_then_list_approved_writes_evidence
+  /root/1codes/1para/server/app/api/v1/ugc.py:73: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_20_ugc_approve.py::test_task_20_ugc_upload_approve_then_list_approved_writes_evidence
+  /root/1codes/1para/server/app/api/v1/admin_review.py:68: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_21_plugins.py::test_task_21_plugins_upload_approve_list_download
+  /root/1codes/1para/server/app/api/v1/plugins.py:141: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_21_plugins.py::test_task_21_plugins_upload_approve_list_download
+  /root/1codes/1para/server/app/api/v1/admin_review.py:108: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
+tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+  /root/1codes/1para/server/app/api/v1/admin_config.py:69: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
+  /root/1codes/1para/server/app/api/v1/feature_flags.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow().replace(microsecond=0)
+
+tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+  /root/1codes/1para/server/app/api/v1/admin_config.py:191: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writes_evidence
+tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writes_evidence
+  /root/1codes/1para/server/app/api/v1/saves.py:187: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+======================= 29 passed, 186 warnings in 9.70s =======================
+
+========== [STEP OK] Server 测试（pytest） ==========
+
+========== [STEP START] Client 单测 ==========
++ npm -C client test
+
+> ai-girlfriend-client@0.0.0 test
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /root/1codes/1para/client
+
+ ✓ tests/app.smoke.test.tsx (1 test) 143ms
+ ✓ tests/plugins-consent.test.tsx (1 test) 182ms
+
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+   Start at  22:46:30
+   Duration  1.36s (transform 174ms, setup 174ms, collect 464ms, tests 324ms, environment 1.01s, prepare 205ms)
+
+
+========== [STEP OK] Client 单测 ==========
+
+========== [TASK] ALL GREEN ==========
+
+========== [STEP OK] CI (contracts + server pytest + client unit) ==========
+
+========== [STEP START] Client E2E (Playwright Electron) ==========
++ npm -C client run e2e -- electron-{login,chat-stream,feed-knowledge,gallery,timeline,pet-ui,vision-screenshot,assistant-suggest,plugin,admin-flag}.spec.ts
+
+> ai-girlfriend-client@0.0.0 e2e
+> node scripts/run-e2e.mjs electron-login.spec.ts electron-chat-stream.spec.ts electron-feed-knowledge.spec.ts electron-gallery.spec.ts electron-timeline.spec.ts electron-pet-ui.spec.ts electron-vision-screenshot.spec.ts electron-assistant-suggest.spec.ts electron-plugin.spec.ts electron-admin-flag.spec.ts
+
+
+> ai-girlfriend-client@0.0.0 build
+> npm run build:electron && npm run build:renderer
+
+
+> ai-girlfriend-client@0.0.0 build:electron
+> tsc -p tsconfig.electron.json
+
+
+> ai-girlfriend-client@0.0.0 build:renderer
+> vite build --config vite.config.ts
+
+vite v6.4.1 building for production...
+transforming...
+✓ 29 modules transformed.
+rendering chunks...
+computing gzip size...
+../../dist/renderer/index.html                   0.41 kB │ gzip:  0.30 kB
+../../dist/renderer/assets/index-CZlQEbJ2.css    3.78 kB │ gzip:  1.48 kB
+../../dist/renderer/assets/index-CltLXk7x.js   185.55 kB │ gzip: 57.94 kB
+✓ built in 1.06s
+
+Running 11 tests using 7 workers
+
+  ✓   1 playwright/electron-pet-ui.spec.ts:65:5 › Electron pet UI: sprite click opens radial menu and enters chat (1.9s)
+  ✓   3 playwright/electron-login.spec.ts:183:5 › Electron login: success (2.7s)
+  ✓   5 playwright/electron-chat-stream.spec.ts:378:5 › Electron chat stream: first token within 3s (3.7s)
+  ✓   2 playwright/electron-gallery.spec.ts:206:5 › Task 17: generative gallery -> pending -> completed (with evidence screenshot) (4.3s)
+  ✓   6 playwright/electron-feed-knowledge.spec.ts:154:5 › Electron knowledge feed: drag .md, progress -> done (4.5s)
+  ✓   8 playwright/electron-plugin.spec.ts:241:5 › Task 21: plugin default-off + enable + install + pet bubble (with evidence screenshot) (2.6s)
+  ✓   4 playwright/electron-admin-flag.spec.ts:357:5 › Task 22: admin flag toggles plugins kill-switch live (with evidence screenshot) (4.7s)
+  ✓   7 playwright/electron-assistant-suggest.spec.ts:160:5 › Electron assistant suggest: clipboard + idle (4.9s)
+  ✓   9 playwright/electron-login.spec.ts:224:5 › Electron login: fail (2.4s)
+  ✓  10 playwright/electron-timeline.spec.ts:216:5 › Task 18: timeline simulate + list (with evidence screenshot) (1.7s)
+  ✓  11 playwright/electron-vision-screenshot.spec.ts:151:5 › Electron vision screenshot: gated by consent + shows suggestion (2.3s)
+
+  11 passed (8.5s)
+
+========== [STEP OK] Client E2E (Playwright Electron) ==========
+
+========== [STEP START] Evidence validation ==========
++ count>=10 + required files exist
+
+========== [EVIDENCE] 证据清单/计数 ==========
+evidence_dir=/root/1codes/1para/.sisyphus/evidence
+evidence_count=27 (min=10)
+task-1-docker-compose.txt
+task-10-pet-ui.png
+task-11-memory-search.json
+task-12-dream-event.txt
+task-13-knowledge-query.json
+task-14-feed-progress.png
+task-15-vision-suggestion.png
+task-16-assistant-suggest.png
+task-17-gallery.png
+task-18-timeline.png
+task-18-timeline.txt
+task-19-room-event.txt
+task-2-health.json
+task-20-ugc-approve.txt
+task-21-plugin.png
+task-22-admin-flag.png
+task-23-audit.txt
+task-24-ci.txt
+task-25-qa-alpha.txt
+task-3-electron-smoke.png
+task-4-openapi-snippet.txt
+task-5-auth-flow.txt
+task-6-login-fail.png
+task-6-login-success.png
+task-7-ws-resume.txt
+task-8-chat-stream.png
+task-9-save-isolation.txt
+
+========== [STEP OK] Evidence validation ==========
+
+========== [TASK] ALL GREEN ==========
