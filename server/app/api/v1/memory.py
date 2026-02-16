@@ -12,7 +12,7 @@ from typing import NoReturn, cast
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import Float, select, text
+from sqlalchemy import Float, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import literal
 
@@ -88,15 +88,18 @@ def _get_owned_save_or_404(db: Session, *, user_id: str, save_id: str) -> Save:
     return save
 
 
-def _ensure_pgvector(db: Session) -> None:
-    try:
-        _ = db.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        db.commit()
-    except Exception as e:
+def _raise_if_pgvector_unavailable(exc: Exception) -> None:
+    msg = str(exc).lower()
+    if "vector" not in msg:
+        return
+    if "does not exist" in msg or "undefinedobject" in msg or "undefinedfunction" in msg:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to enable pgvector extension: {e}",
-        )
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "pgvector 不可用（可能未安装 extension 或未运行迁移）。"
+                "请先执行 alembic upgrade head 并确保数据库已启用 pgvector。"
+            ),
+        ) from exc
 
 
 @router.post(
@@ -111,7 +114,6 @@ async def memory_ingest(
     user_id: str = Depends(require_user_id),
 ) -> MemoryIngestResponse:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=payload.save_id)
-    _ensure_pgvector(db)
 
     now = datetime.utcnow()
     item = MemoryItem(
@@ -135,7 +137,11 @@ async def memory_ingest(
             created_at=now,
         )
     )
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        _raise_if_pgvector_unavailable(e)
+        raise
     db.refresh(item)
     return MemoryIngestResponse(id=item.id, save_id=item.save_id, created_at=item.created_at)
 
@@ -153,7 +159,6 @@ async def memory_search(
     user_id: str = Depends(require_user_id),
 ) -> list[MemorySearchItem]:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=save_id)
-    _ensure_pgvector(db)
 
     query_vec = local_embed(q)
     query_lit = literal(query_vec, type_=Vector(EMBED_DIM))
@@ -169,7 +174,11 @@ async def memory_search(
         .order_by(distance_expr.asc())
         .limit(limit)
     )
-    rows = cast(list[tuple[MemoryItem, float]], db.execute(stmt).tuples().all())
+    try:
+        rows = cast(list[tuple[MemoryItem, float]], db.execute(stmt).tuples().all())
+    except Exception as e:
+        _raise_if_pgvector_unavailable(e)
+        raise
 
     out: list[MemorySearchItem] = []
     for item, dist in rows:

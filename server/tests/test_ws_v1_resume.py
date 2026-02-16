@@ -54,6 +54,15 @@ def _get_user_id(client: TestClient, access_token: str) -> str:
     return user_id
 
 
+def _create_save_id(client: TestClient, *, headers: dict[str, str], name: str) -> str:
+    r = client.post("/api/v1/saves", json={"name": name}, headers=headers)
+    assert r.status_code == 201, r.text
+    data = cast(dict[str, object], r.json())
+    save_id = data.get("id")
+    assert isinstance(save_id, str) and save_id
+    return save_id
+
+
 def _recv_event_frames(
     ws: WebSocketTestSession, expected_count: int
 ) -> tuple[list[int], list[str]]:
@@ -85,7 +94,6 @@ def _assert_strictly_continuous(seqs: list[int], *, start_seq: int) -> None:
 def test_ws_v1_resume_reconnect_seq_continuous_and_event_id_unique_writes_evidence() -> None:
     email = _random_email()
     password = "password123"
-    save_id = f"save-{uuid.uuid4().hex}"
 
     initial_n = 4
     extra_m = 3
@@ -95,13 +103,15 @@ def test_ws_v1_resume_reconnect_seq_continuous_and_event_id_unique_writes_eviden
         access = tokens["access_token"]
         user_id = _get_user_id(client, access_token=access)
 
+        headers = {"Authorization": f"Bearer {access}"}
+        save_id = _create_save_id(client, headers=headers, name=f"save-{uuid.uuid4().hex}")
+
         stream_key = (user_id, save_id)
 
         for i in range(initial_n):
             _ = append_event(stream_key, payload={"phase": "first", "i": i}, ack_required=True)
 
         url1 = f"/ws/v1?save_id={save_id}&resume_from=0"
-        headers = {"Authorization": f"Bearer {access}"}
         with client.websocket_connect(url1, headers=headers) as ws1:
             seqs1, ids1 = _recv_event_frames(ws1, expected_count=initial_n)
 

@@ -13,7 +13,17 @@ from datetime import datetime
 from typing import Callable, Optional
 from uuid import uuid4
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    Boolean,
+    CheckConstraint,
+    DateTime,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import UserDefinedType
 from sqlalchemy.engine.interfaces import Dialect
@@ -78,7 +88,7 @@ class User(Base):
     __tablename__: str = "users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, nullable=False
@@ -93,6 +103,12 @@ class User(Base):
     refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
         "RefreshToken",
         back_populates="user",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+    password_reset_tokens: Mapped[list["PasswordResetToken"]] = relationship(
+        "PasswordResetToken",
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
@@ -158,6 +174,43 @@ class RefreshToken(Base):
 
     user: Mapped[User] = relationship("User", back_populates="refresh_tokens")
     device: Mapped[Device] = relationship("Device", back_populates="refresh_tokens")
+
+
+class PasswordResetToken(Base):
+    __tablename__: str = "password_reset_tokens"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    token_hash: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+    user: Mapped[User] = relationship("User", back_populates="password_reset_tokens")
+
+
+class AuthRateLimit(Base):
+    __tablename__: str = "auth_rate_limits"
+    __table_args__: tuple[object, ...] = (
+        CheckConstraint("failures >= 0", name="ck_auth_rate_limits_failures_ge_0"),
+    )
+
+    key: Mapped[str] = mapped_column(String(512), primary_key=True)
+    failures: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+    reset_at: Mapped[datetime] = mapped_column(DateTime(), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
 
 
 class Save(Base):
@@ -507,6 +560,14 @@ class UgcAsset(Base):
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True, nullable=False)
     storage_path: Mapped[str] = mapped_column(Text(), nullable=False, default="")
 
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    review_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, nullable=False
     )
@@ -553,6 +614,14 @@ class PluginPackage(Base):
 
     status: Mapped[str] = mapped_column(String(20), default="pending", index=True, nullable=False)
 
+    reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    reviewed_by: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    review_note: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, nullable=False
     )
@@ -565,7 +634,7 @@ class AdminUser(Base):
     __tablename__: str = "admin_users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
     role: Mapped[str] = mapped_column(String(20), nullable=False, default="operator")
@@ -596,4 +665,149 @@ class AdminKV(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class AdminLLMChannel(Base):
+    __tablename__: str = "admin_llm_channels"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("name", name="uq_admin_llm_channels_name"),
+        CheckConstraint("purpose IN ('chat','embedding')", name="ck_admin_llm_channels_purpose"),
+        CheckConstraint("timeout_ms >= 1", name="ck_admin_llm_channels_timeout_ms_ge_1"),
+        CheckConstraint("weight >= 0", name="ck_admin_llm_channels_weight_ge_0"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+    base_url: Mapped[str] = mapped_column(Text(), nullable=False)
+
+    api_key_enc: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+    enabled: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+    purpose: Mapped[str] = mapped_column(String(20), nullable=False, default="chat")
+
+    default_model: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    timeout_ms: Mapped[int] = mapped_column(Integer(), nullable=False, default=60000)
+    weight: Mapped[int] = mapped_column(Integer(), nullable=False, default=100)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class WsStream(Base):
+    __tablename__: str = "ws_streams"
+    __table_args__: tuple[object, ...] = (
+        CheckConstraint("next_seq >= 1", name="ck_ws_streams_next_seq_ge_1"),
+        CheckConstraint("trimmed_upto_seq >= 0", name="ck_ws_streams_trimmed_upto_seq_ge_0"),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    save_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+
+    next_seq: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    trimmed_upto_seq: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class WsEvent(Base):
+    __tablename__: str = "ws_events"
+    __table_args__: tuple[object, ...] = (
+        CheckConstraint("seq >= 1", name="ck_ws_events_seq_ge_1"),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    save_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    seq: Mapped[int] = mapped_column(Integer(), primary_key=True)
+
+    frame_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    payload_json: Mapped[object | None] = mapped_column(JSONB(), nullable=True)
+    ack_required: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+
+class WsDeviceCursor(Base):
+    __tablename__: str = "ws_device_cursors"
+    __table_args__: tuple[object, ...] = (
+        CheckConstraint("last_acked_seq >= 0", name="ck_ws_device_cursors_last_acked_seq_ge_0"),
+    )
+
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    save_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    device_id: Mapped[str] = mapped_column(String(100), primary_key=True)
+
+    last_acked_seq: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+
+class LLMUsageEvent(Base):
+    __tablename__: str = "llm_usage_events"
+    __table_args__: tuple[object, ...] = (
+        CheckConstraint("latency_ms >= 0", name="ck_llm_usage_events_latency_ms_ge_0"),
+        CheckConstraint(
+            "time_to_first_token_ms IS NULL OR time_to_first_token_ms >= 0",
+            name="ck_llm_usage_events_ttft_ms_ge_0",
+        ),
+        CheckConstraint("output_chunks >= 0", name="ck_llm_usage_events_output_chunks_ge_0"),
+        CheckConstraint("output_chars >= 0", name="ck_llm_usage_events_output_chars_ge_0"),
+        CheckConstraint(
+            "prompt_tokens IS NULL OR prompt_tokens >= 0",
+            name="ck_llm_usage_events_prompt_tokens_ge_0",
+        ),
+        CheckConstraint(
+            "completion_tokens IS NULL OR completion_tokens >= 0",
+            name="ck_llm_usage_events_completion_tokens_ge_0",
+        ),
+        CheckConstraint(
+            "total_tokens IS NULL OR total_tokens >= 0",
+            name="ck_llm_usage_events_total_tokens_ge_0",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    user_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
+    save_id: Mapped[str] = mapped_column(String(64), index=True, nullable=False)
+
+    provider: Mapped[str] = mapped_column(String(50), nullable=False)
+    api: Mapped[str] = mapped_column(String(50), nullable=False)
+    model: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    started_at: Mapped[datetime] = mapped_column(DateTime(), index=True, nullable=False)
+    ended_at: Mapped[datetime] = mapped_column(DateTime(), index=True, nullable=False)
+
+    latency_ms: Mapped[int] = mapped_column(Integer(), nullable=False)
+    time_to_first_token_ms: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+
+    output_chunks: Mapped[int] = mapped_column(Integer(), nullable=False)
+    output_chars: Mapped[int] = mapped_column(Integer(), nullable=False)
+
+    interrupted: Mapped[bool] = mapped_column(Boolean(), nullable=False, default=False)
+    error: Mapped[str | None] = mapped_column(Text(), nullable=True)
+
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    completion_tokens: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+    total_tokens: Mapped[int | None] = mapped_column(Integer(), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
     )

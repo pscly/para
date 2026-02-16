@@ -86,6 +86,27 @@ def hash_refresh_token(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
+def new_password_reset_token() -> str:
+    return _b64url_encode(secrets.token_bytes(32))
+
+
+def hash_password_reset_token(token: str) -> str:
+    if token == "":
+        raise ValueError("token must be a non-empty string")
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def validate_password_policy(password: str) -> None:
+    if password == "":
+        raise ValueError("password must be non-empty")
+    if any(ch.isspace() for ch in password):
+        raise ValueError("password must not contain whitespace")
+    has_alpha = any(ch.isalpha() for ch in password)
+    has_digit = any(ch.isdigit() for ch in password)
+    if not (has_alpha and has_digit):
+        raise ValueError("password must contain letters and numbers")
+
+
 def _json_b64url(obj: Mapping[str, JSONValue]) -> str:
     raw = json.dumps(obj, separators=(",", ":"), sort_keys=True, ensure_ascii=True).encode("utf-8")
     return _b64url_encode(raw)

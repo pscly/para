@@ -68,7 +68,13 @@ def test_task_17_gallery_generate_complete_list_writes_files() -> None:
 
         gallery_id = cast(str, gen_body.get("gallery_id"))
         assert isinstance(gallery_id, str) and gallery_id
-        assert cast(str, gen_body.get("status")) in {"pending", "completed", "failed"}
+        assert cast(str, gen_body.get("status")) in {
+            "pending",
+            "running",
+            "completed",
+            "failed",
+            "canceled",
+        }
 
         list_resp = client.get(f"/api/v1/gallery/items?save_id={save_id}", headers=headers)
         assert list_resp.status_code == 200, list_resp.text
@@ -79,10 +85,8 @@ def test_task_17_gallery_generate_complete_list_writes_files() -> None:
         assert cast(str, first.get("id")) == gallery_id
         assert cast(str, first.get("status")) == "completed"
 
-        thumb = first.get("thumb_data_url")
-        image = first.get("image_data_url")
-        assert isinstance(thumb, str) and thumb.startswith("data:image/png;base64,")
-        assert isinstance(image, str) and image.startswith("data:image/png;base64,")
+        assert "thumb_data_url" not in first
+        assert "image_data_url" not in first
 
         repo_root = Path(__file__).resolve().parents[2]
         image_path = repo_root / "server" / ".data" / "gallery" / gallery_id / "image.png"
@@ -91,3 +95,19 @@ def test_task_17_gallery_generate_complete_list_writes_files() -> None:
         assert thumb_path.exists()
         assert image_path.stat().st_size > 0
         assert thumb_path.stat().st_size > 0
+
+        dl_thumb = client.get(
+            f"/api/v1/gallery/items/{gallery_id}/download?kind=thumb",
+            headers=headers,
+        )
+        assert dl_thumb.status_code == 200, dl_thumb.text
+        assert dl_thumb.headers.get("content-type", "").startswith("image/png")
+        assert dl_thumb.content == thumb_path.read_bytes()
+
+        dl_image = client.get(
+            f"/api/v1/gallery/items/{gallery_id}/download?kind=image",
+            headers=headers,
+        )
+        assert dl_image.status_code == 200, dl_image.text
+        assert dl_image.headers.get("content-type", "").startswith("image/png")
+        assert dl_image.content == image_path.read_bytes()

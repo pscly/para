@@ -6,12 +6,15 @@
 # pyright: reportDeprecated=false
 from __future__ import annotations
 
+import base64
+import json
+from datetime import datetime, timezone
 from typing import NoReturn, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import and_, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -101,16 +104,76 @@ def _get_owned_save_or_404(db: Session, *, user_id: str, save_id: str) -> Save:
     return save
 
 
-def _parse_cursor_offset(cursor: str | None) -> int:
-    if cursor is None or cursor.strip() == "":
-        return 0
+_CURSOR_PREFIX = "k1_"
+
+
+def _b64url_encode(raw: bytes) -> str:
+    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+
+def _b64url_decode(s: str) -> bytes:
+    padding = "=" * (-len(s) % 4)
+    return base64.urlsafe_b64decode(s + padding)
+
+
+def _dt_to_wire_utc_z(dt: datetime) -> str:
+    return dt.isoformat() + "Z"
+
+
+def _parse_wire_utc_datetime(s: str) -> datetime:
     try:
-        n = int(cursor)
+        if s.endswith("Z"):
+            dt = datetime.fromisoformat(s[:-1] + "+00:00")
+        else:
+            dt = datetime.fromisoformat(s)
     except Exception:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
-    if n < 0:
+
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+    return dt
+
+
+def _encode_cursor_k1(*, created_at: datetime, event_id: str) -> str:
+    payload = {"created_at": _dt_to_wire_utc_z(created_at), "id": event_id}
+    raw = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+    return _CURSOR_PREFIX + _b64url_encode(raw)
+
+
+def _parse_cursor_keyset(cursor: str | None) -> tuple[datetime, str] | None:
+    if cursor is None:
+        return None
+    c = cursor.strip()
+    if c == "" or c == "0":
+        return None
+
+    if not c.startswith(_CURSOR_PREFIX):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
-    return n
+
+    b64 = c[len(_CURSOR_PREFIX) :]
+    if b64 == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
+
+    try:
+        raw = _b64url_decode(b64)
+        obj_raw = cast(object, json.loads(raw.decode("utf-8")))
+    except Exception:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
+
+    if not isinstance(obj_raw, dict):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
+
+    obj = cast(dict[str, object], obj_raw)
+
+    created_at_raw = obj.get("created_at")
+    event_id_raw = obj.get("id")
+    if not isinstance(created_at_raw, str) or not isinstance(event_id_raw, str):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
+    if event_id_raw.strip() == "":
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid cursor")
+
+    created_at = _parse_wire_utc_datetime(created_at_raw)
+    return (created_at, event_id_raw)
 
 
 @router.get(
@@ -121,12 +184,13 @@ def _parse_cursor_offset(cursor: str | None) -> int:
 async def timeline_list(
     *,
     cursor: str | None = None,
+    event_type: str | None = Query(None, min_length=1),
     limit: int = Query(20, ge=1, le=200),
     save_id: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
     user_id: str = Depends(require_user_id),
 ) -> TimelineListResponse:
-    offset = _parse_cursor_offset(cursor)
+    keyset = _parse_cursor_keyset(cursor)
 
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=save_id)
 
@@ -135,25 +199,44 @@ async def timeline_list(
         TimelineEvent.save_id == save_id,
     )
 
-    stmt = (
-        stmt.order_by(TimelineEvent.created_at.desc(), TimelineEvent.id.desc())
-        .offset(offset)
-        .limit(int(limit))
+    final_event_type = (event_type or "").strip()
+    if final_event_type != "":
+        stmt = stmt.where(TimelineEvent.event_type == final_event_type)
+
+    if keyset is not None:
+        cursor_created_at, cursor_id = keyset
+        stmt = stmt.where(
+            or_(
+                TimelineEvent.created_at < cursor_created_at,
+                and_(TimelineEvent.created_at == cursor_created_at, TimelineEvent.id < cursor_id),
+            )
+        )
+
+    page_size = int(limit)
+
+    stmt = stmt.order_by(TimelineEvent.created_at.desc(), TimelineEvent.id.desc()).limit(
+        page_size + 1
     )
 
     rows = [row for row in db.execute(stmt).scalars().all()]
+    has_more = len(rows) > page_size
+    if has_more:
+        rows = rows[:page_size]
     items = [
         TimelineListItem(
             id=r.id,
             save_id=r.save_id,
             event_type=r.event_type,
             content=r.content,
-            created_at=r.created_at.isoformat() + "Z",
+            created_at=_dt_to_wire_utc_z(r.created_at),
         )
         for r in rows
     ]
 
-    next_cursor = str(offset + len(items))
+    next_cursor = ""
+    if has_more and rows:
+        last = rows[-1]
+        next_cursor = _encode_cursor_k1(created_at=last.created_at, event_id=last.id)
     return TimelineListResponse(items=items, next_cursor=next_cursor)
 
 

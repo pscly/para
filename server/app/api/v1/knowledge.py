@@ -7,6 +7,8 @@
 from __future__ import annotations
 
 import shutil
+import os
+import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, Protocol, cast
@@ -14,7 +16,7 @@ from typing import NoReturn, Protocol, cast
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
-from sqlalchemy import Float, select, text
+from sqlalchemy import Float, select
 from sqlalchemy.orm import Session
 from sqlalchemy.sql import literal
 
@@ -22,8 +24,9 @@ from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.models import KnowledgeChunk, KnowledgeMaterial, Save, Vector
 from app.db.session import get_db
-from app.services.embedding_local import EMBED_DIM, local_embed
+from app.services.embedding_provider import embed_text
 from app.workers.tasks.knowledge import task_13_index_knowledge_material
+from app.workers.celery_app import celery_app
 
 
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
@@ -44,6 +47,16 @@ class KnowledgeMaterialOut(BaseModel):
 
 class KnowledgeMaterialCreateResponse(BaseModel):
     material: KnowledgeMaterialOut
+
+
+class KnowledgeMaterialDeleteResponse(BaseModel):
+    ok: bool = True
+    material_id: str
+
+
+class KnowledgeMaterialReindexResponse(BaseModel):
+    material: KnowledgeMaterialOut
+    task_id: str | None = None
 
 
 class KnowledgeQueryRequest(BaseModel):
@@ -109,20 +122,31 @@ def _get_owned_save_or_404(db: Session, *, user_id: str, save_id: str) -> Save:
     return save
 
 
-def _ensure_pgvector(db: Session) -> None:
-    try:
-        _ = db.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        db.commit()
-    except Exception as e:
+def _raise_if_pgvector_unavailable(exc: Exception) -> None:
+    msg = str(exc).lower()
+    if "vector" not in msg:
+        return
+    if "does not exist" in msg or "undefinedobject" in msg or "undefinedfunction" in msg:
         raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to enable pgvector extension: {e}",
-        )
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=(
+                "pgvector 不可用（可能未安装 extension 或未运行迁移）。"
+                "请先执行 alembic upgrade head 并确保数据库已启用 pgvector。"
+            ),
+        ) from exc
 
 
 def _server_data_dir() -> Path:
     server_root = Path(__file__).resolve().parents[3]
     return server_root / ".data" / "knowledge"
+
+
+def _material_storage_dir(material_id: str) -> Path:
+    base = _server_data_dir().resolve()
+    target = (base / material_id).resolve()
+    if target.parent != base:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid material_id")
+    return target
 
 
 def _guess_ext(filename: str | None, content_type: str | None) -> str:
@@ -154,6 +178,36 @@ def _material_out(m: KnowledgeMaterial) -> KnowledgeMaterialOut:
     )
 
 
+class _UploadTooLarge(Exception):
+    pass
+
+
+def _copy_limited(*, src: object, dst: object, max_bytes: int) -> None:
+    if max_bytes <= 0:
+        raise _UploadTooLarge()
+
+    read = getattr(src, "read", None)
+    write = getattr(dst, "write", None)
+    if not callable(read) or not callable(write):
+        raise TypeError("src/dst must be file-like")
+
+    remaining = max_bytes
+    while True:
+        chunk = read(64 * 1024)
+        if not chunk:
+            return
+        if not isinstance(chunk, (bytes, bytearray)):
+            raise TypeError("upload read must return bytes")
+
+        if len(chunk) > remaining:
+            if remaining > 0:
+                _ = write(chunk[:remaining])
+            raise _UploadTooLarge()
+
+        _ = write(chunk)
+        remaining -= len(chunk)
+
+
 @router.post(
     "/materials",
     response_model=KnowledgeMaterialCreateResponse,
@@ -167,7 +221,6 @@ async def knowledge_materials_create(
     user_id: str = Depends(require_user_id),
 ) -> KnowledgeMaterialCreateResponse:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=save_id)
-    _ensure_pgvector(db)
 
     ext = _guess_ext(file.filename, file.content_type)
     now = datetime.utcnow()
@@ -189,12 +242,44 @@ async def knowledge_materials_create(
     base_dir.mkdir(parents=True, exist_ok=True)
     storage_path = base_dir / f"original{ext}"
 
-    with storage_path.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
+    tmp_path = base_dir / f".upload-tmp-{uuid.uuid4().hex}"
+    try:
+        with tmp_path.open("wb") as f:
+            _copy_limited(
+                src=file.file, dst=f, max_bytes=int(settings.knowledge_materials_max_bytes)
+            )
 
-    material.storage_path = str(storage_path)
-    db.commit()
-    db.refresh(material)
+        os.replace(tmp_path, storage_path)
+        material.storage_path = str(storage_path)
+        db.commit()
+        db.refresh(material)
+    except _UploadTooLarge:
+        db.rollback()
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            storage_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        shutil.rmtree(base_dir, ignore_errors=True)
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Material payload too large",
+        )
+    except Exception:
+        db.rollback()
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            storage_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        shutil.rmtree(base_dir, ignore_errors=True)
+        raise
 
     task = cast(_IndexTask, task_13_index_knowledge_material)
     _ = task.delay(material.id)
@@ -239,6 +324,75 @@ async def knowledge_materials_get(
     return _material_out(m)
 
 
+@router.delete(
+    "/materials/{material_id}",
+    response_model=KnowledgeMaterialDeleteResponse,
+    operation_id="knowledge_materials_delete",
+)
+async def knowledge_materials_delete(
+    material_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user_id),
+) -> KnowledgeMaterialDeleteResponse:
+    m = db.get(KnowledgeMaterial, material_id)
+    if m is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+    _ = _get_owned_save_or_404(db, user_id=user_id, save_id=m.save_id)
+
+    storage_dir = _material_storage_dir(material_id)
+    db.delete(m)
+    db.commit()
+
+    shutil.rmtree(storage_dir, ignore_errors=True)
+    return KnowledgeMaterialDeleteResponse(material_id=material_id)
+
+
+@router.post(
+    "/materials/{material_id}/reindex",
+    response_model=KnowledgeMaterialReindexResponse,
+    operation_id="knowledge_materials_reindex",
+)
+async def knowledge_materials_reindex(
+    material_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user_id),
+) -> KnowledgeMaterialReindexResponse:
+    m = db.get(KnowledgeMaterial, material_id)
+    if m is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Material not found")
+    _ = _get_owned_save_or_404(db, user_id=user_id, save_id=m.save_id)
+
+    now = datetime.utcnow()
+    m.status = "pending"
+    m.error = None
+    m.updated_at = now
+    db.commit()
+    db.refresh(m)
+
+    task = cast(_IndexTask, task_13_index_knowledge_material)
+    async_result = task.delay(m.id)
+
+    if bool(getattr(celery_app.conf, "task_always_eager", False)):
+        try:
+            _ = async_result.get(timeout=5)
+        except Exception:
+            pass
+        try:
+            db.refresh(m)
+        except Exception:
+            pass
+
+    try:
+        db.refresh(m)
+    except Exception:
+        pass
+
+    return KnowledgeMaterialReindexResponse(
+        material=_material_out(m),
+        task_id=async_result.id,
+    )
+
+
 @router.post(
     "/query",
     response_model=KnowledgeQueryResponse,
@@ -250,10 +404,9 @@ async def knowledge_query(
     user_id: str = Depends(require_user_id),
 ) -> KnowledgeQueryResponse:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=payload.save_id)
-    _ensure_pgvector(db)
 
-    query_vec = local_embed(payload.query)
-    query_lit = literal(query_vec, type_=Vector(EMBED_DIM))
+    emb = embed_text(payload.query)
+    query_lit = literal(emb.embedding, type_=Vector(int(emb.embedding_dim)))
     distance_expr = KnowledgeChunk.embedding.op("<->")(query_lit).cast(Float)
 
     stmt = (
@@ -267,7 +420,11 @@ async def knowledge_query(
         .order_by(distance_expr.asc())
         .limit(int(payload.top_k))
     )
-    rows = cast(list[tuple[KnowledgeChunk, float]], db.execute(stmt).tuples().all())
+    try:
+        rows = cast(list[tuple[KnowledgeChunk, float]], db.execute(stmt).tuples().all())
+    except Exception as e:
+        _raise_if_pgvector_unavailable(e)
+        raise
 
     citations: list[KnowledgeCitation] = []
     answer_parts: list[str] = []

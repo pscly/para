@@ -8,10 +8,11 @@ from __future__ import annotations
 
 import json
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import cast
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, status
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -23,6 +24,12 @@ from app.db.session import get_db
 
 
 router = APIRouter(prefix="/admin/config", tags=["admin"])
+
+
+def _to_naive_utc(dt: datetime) -> datetime:
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
 
 
 def _canonical_json(obj: dict[str, object]) -> str:
@@ -56,6 +63,28 @@ def _load_json_object(raw: str) -> dict[str, object]:
     if isinstance(val, dict):
         return cast(dict[str, object], val)
     return {}
+
+
+def _parse_metadata(raw: str) -> object | str:
+    try:
+        return cast(object, json.loads(raw))
+    except Exception:
+        return raw
+
+
+class AuditLogListItem(BaseModel):
+    id: str
+    actor: str
+    action: str
+    target_type: str
+    target_id: str
+    metadata: object | str
+    created_at: datetime
+
+
+class AuditLogListResponse(BaseModel):
+    items: list[AuditLogListItem] = Field(default_factory=list)
+    next_offset: int | None = None
 
 
 def _get_kv(db: Session, *, namespace: str, key: str) -> AdminKV | None:
@@ -227,3 +256,62 @@ async def admin_audit_logs_cleanup(
     retention_days = int(days) if days is not None else int(settings.audit_log_retention_days)
     now = datetime.utcnow()
     return purge_old_audit_logs(db, now=now, retention_days=retention_days)
+
+
+@router.get(
+    "/audit_logs",
+    operation_id="admin_audit_logs_list",
+    response_model=AuditLogListResponse,
+)
+async def admin_audit_logs_list(
+    actor: str | None = Query(None, min_length=1, max_length=50),
+    action: str | None = Query(None, min_length=1, max_length=100),
+    target_type: str | None = Query(None, min_length=1, max_length=50),
+    target_id: str | None = Query(None, min_length=1, max_length=64),
+    since: datetime | None = Query(None),
+    until: datetime | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    offset: int = Query(0, ge=0),
+    _admin: AdminUser = Depends(get_current_admin_user),
+    db: Session = Depends(get_db),
+) -> AuditLogListResponse:
+    stmt = select(AuditLog)
+
+    if actor is not None:
+        stmt = stmt.where(AuditLog.actor == actor)
+    if action is not None:
+        stmt = stmt.where(AuditLog.action == action)
+    if target_type is not None:
+        stmt = stmt.where(AuditLog.target_type == target_type)
+    if target_id is not None:
+        stmt = stmt.where(AuditLog.target_id == target_id)
+
+    if since is not None:
+        stmt = stmt.where(AuditLog.created_at >= _to_naive_utc(since))
+    if until is not None:
+        stmt = stmt.where(AuditLog.created_at <= _to_naive_utc(until))
+
+    stmt = (
+        stmt.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .offset(offset)
+        .limit(limit + 1)
+    )
+
+    rows = list(db.execute(stmt).scalars().all())
+    more = len(rows) > limit
+    page = rows[:limit]
+
+    items = [
+        AuditLogListItem(
+            id=row.id,
+            actor=row.actor,
+            action=row.action,
+            target_type=row.target_type,
+            target_id=row.target_id,
+            metadata=_parse_metadata(row.metadata_json),
+            created_at=row.created_at,
+        )
+        for row in page
+    ]
+    next_offset = (offset + len(page)) if more else None
+    return AuditLogListResponse(items=items, next_offset=next_offset)

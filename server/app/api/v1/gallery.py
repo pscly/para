@@ -6,13 +6,13 @@
 # pyright: reportDeprecated=false
 from __future__ import annotations
 
-import base64
 from datetime import datetime
 from pathlib import Path
 from typing import NoReturn, Protocol, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -46,8 +46,11 @@ class GalleryItemOut(BaseModel):
     status: str
     created_at: datetime
     prompt: str
-    thumb_data_url: str | None = None
-    image_data_url: str | None = None
+
+
+class GalleryCancelResponse(BaseModel):
+    gallery_id: str
+    status: str
 
 
 class _AsyncResult(Protocol):
@@ -98,15 +101,20 @@ def _server_data_dir() -> Path:
     return server_root / ".data" / "gallery"
 
 
-def _file_to_data_url(path: Path) -> str | None:
+def _is_within_dir(path: Path, root: Path) -> bool:
     try:
-        b = path.read_bytes()
+        _ = path.relative_to(root)
+        return True
     except Exception:
-        return None
-    if not b:
-        return None
-    encoded = base64.b64encode(b).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
+        return False
+
+
+def _get_item_storage_dir(item: GalleryItem) -> Path:
+    root = _server_data_dir().resolve()
+    base_dir = Path(item.storage_dir).resolve()
+    if not _is_within_dir(base_dir, root):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gallery item not found")
+    return base_dir
 
 
 @router.post(
@@ -180,17 +188,87 @@ async def gallery_items_list(
 
     out: list[GalleryItemOut] = []
     for it in items:
-        base_dir = Path(it.storage_dir)
-        thumb = _file_to_data_url(base_dir / "thumb.png") if it.status == "completed" else None
-        image = _file_to_data_url(base_dir / "image.png") if it.status == "completed" else None
         out.append(
             GalleryItemOut(
                 id=it.id,
                 status=it.status,
                 created_at=it.created_at,
                 prompt=it.prompt,
-                thumb_data_url=thumb,
-                image_data_url=image,
             )
         )
     return out
+
+
+@router.get(
+    "/items/{gallery_id}/download",
+    operation_id="gallery_item_download",
+    responses={
+        200: {
+            "content": {"image/png": {}},
+            "description": "PNG image bytes",
+        }
+    },
+)
+async def gallery_item_download(
+    gallery_id: str,
+    kind: str = Query(..., min_length=1, description="thumb|image"),
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user_id),
+) -> FileResponse:
+    item = db.get(GalleryItem, gallery_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gallery item not found")
+
+    _ = _get_owned_save_or_404(db, user_id=user_id, save_id=item.save_id)
+
+    kind_norm = kind.strip().lower()
+    filename = ""
+    if kind_norm == "thumb":
+        filename = "thumb.png"
+    elif kind_norm == "image":
+        filename = "image.png"
+    else:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Invalid kind")
+
+    base_dir = _get_item_storage_dir(item)
+    file_path = base_dir / filename
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    dl_name = f"gallery-{item.id}-{kind_norm}.png"
+    return FileResponse(
+        path=str(file_path),
+        media_type="image/png",
+        filename=dl_name,
+        headers={"Content-Disposition": f'inline; filename="{dl_name}"'},
+    )
+
+
+@router.post(
+    "/items/{gallery_id}/cancel",
+    response_model=GalleryCancelResponse,
+    operation_id="gallery_item_cancel",
+)
+async def gallery_item_cancel(
+    gallery_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user_id),
+) -> GalleryCancelResponse:
+    item = db.get(GalleryItem, gallery_id)
+    if item is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Gallery item not found")
+
+    _ = _get_owned_save_or_404(db, user_id=user_id, save_id=item.save_id)
+
+    if item.status in {"completed", "failed", "canceled"}:
+        return GalleryCancelResponse(gallery_id=item.id, status=item.status)
+
+    if item.status in {"pending", "running"}:
+        item.status = "canceled"
+        item.error = "canceled"
+        item.completed_at = datetime.utcnow()
+        db.commit()
+        db.refresh(item)
+        return GalleryCancelResponse(gallery_id=item.id, status=item.status)
+
+    return GalleryCancelResponse(gallery_id=item.id, status=item.status)

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import NoReturn
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -17,16 +17,21 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.email import normalize_email
+from app.core import security as core_security
 from app.core.security import (
     decode_access_token,
     encode_access_token,
     hash_password,
+    hash_password_reset_token,
     hash_refresh_token,
     new_refresh_token,
+    validate_password_policy,
     verify_password,
 )
-from app.db.models import Device, RefreshToken, User
+from app.db.models import Device, PasswordResetToken, RefreshToken, User
 from app.db.session import get_db
+from app.services.auth_rate_limit import AuthRateLimiter, auth_rate_limit_key
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -54,6 +59,24 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class PasswordResetRequest(BaseModel):
+    email: str = Field(..., examples=["user@example.com"])
+
+
+class PasswordResetConfirmRequest(BaseModel):
+    email: str = Field(..., examples=["user@example.com"])
+    token: str = Field(..., examples=["<token>"])
+    new_password: str = Field(..., min_length=8, examples=["password123"])
+
+
+class PasswordResetAcceptedResponse(BaseModel):
+    status: str = "accepted"
+
+
+class PasswordResetConfirmResponse(BaseModel):
+    status: str = "ok"
+
+
 class MeResponse(BaseModel):
     user_id: str
     email: str
@@ -64,6 +87,41 @@ def _unauthorized(detail: str = "Unauthorized") -> NoReturn:
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail=detail,
     )
+
+
+def _rate_limiter() -> AuthRateLimiter:
+    return AuthRateLimiter(
+        enabled=settings.auth_rate_limit_enabled,
+        max_failures=settings.auth_rate_limit_max_failures,
+        window_seconds=settings.auth_rate_limit_window_seconds,
+    )
+
+
+def _client_ip(request: Request) -> str | None:
+    if request.client is None:
+        return None
+    return request.client.host
+
+
+def _raise_rate_limited(*, retry_after_seconds: int) -> NoReturn:
+    headers: dict[str, str] | None = None
+    if retry_after_seconds > 0:
+        headers = {"Retry-After": str(int(retry_after_seconds))}
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many attempts",
+        headers=headers,
+    )
+
+
+def _maybe_record_failure(db: Session, limiter: AuthRateLimiter, *, key: str) -> None:
+    try:
+        limiter.record_failure(db, key=key)
+    except Exception:
+        try:
+            db.rollback()
+        except Exception:
+            pass
 
 
 def _get_current_user_id(creds: HTTPAuthorizationCredentials | None) -> str:
@@ -99,17 +157,43 @@ def _issue_token_pair(user: User) -> tuple[str, str, str]:
     status_code=status.HTTP_201_CREATED,
     operation_id="auth_register",
 )
-async def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> TokenPair:
-    existing = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+async def register(
+    payload: RegisterRequest, request: Request, db: Session = Depends(get_db)
+) -> TokenPair:
+    limiter = _rate_limiter()
+    key = auth_rate_limit_key(scope="auth_register", ip=_client_ip(request), identifier=None)
+    try:
+        check = limiter.check(db, key=key)
+        if check.blocked:
+            _raise_rate_limited(retry_after_seconds=check.retry_after_seconds)
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    email = normalize_email(payload.email)
+
+    try:
+        validate_password_policy(payload.password)
+    except ValueError:
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password does not meet security requirements",
+        )
+
+    existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if existing is not None:
+        _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
-    user = User(email=payload.email, password_hash=hash_password(payload.password))
+    user = User(email=email, password_hash=hash_password(payload.password))
     db.add(user)
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
+        _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
     device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
@@ -125,6 +209,7 @@ async def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> T
         revoked_at=None,
     )
     db.add(rt)
+    limiter.reset(db, key=key)
     db.commit()
 
     return TokenPair(access_token=access, refresh_token=refresh_raw)
@@ -135,9 +220,24 @@ async def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> T
     response_model=TokenPair,
     operation_id="auth_login",
 )
-async def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenPair:
-    user = db.execute(select(User).where(User.email == payload.email)).scalar_one_or_none()
+async def login(
+    payload: LoginRequest, request: Request, db: Session = Depends(get_db)
+) -> TokenPair:
+    email = normalize_email(payload.email)
+    limiter = _rate_limiter()
+    key = auth_rate_limit_key(scope="auth_login", ip=_client_ip(request), identifier=email)
+    try:
+        check = limiter.check(db, key=key)
+        if check.blocked:
+            _raise_rate_limited(retry_after_seconds=check.retry_after_seconds)
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if user is None or not verify_password(payload.password, user.password_hash):
+        _maybe_record_failure(db, limiter, key=key)
         _unauthorized("Bad credentials")
 
     device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
@@ -153,6 +253,7 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenPa
         revoked_at=None,
     )
     db.add(rt)
+    limiter.reset(db, key=key)
     db.commit()
 
     return TokenPair(access_token=access, refresh_token=refresh_raw)
@@ -163,17 +264,32 @@ async def login(payload: LoginRequest, db: Session = Depends(get_db)) -> TokenPa
     response_model=TokenPair,
     operation_id="auth_refresh",
 )
-async def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenPair:
+async def refresh(
+    payload: RefreshRequest, request: Request, db: Session = Depends(get_db)
+) -> TokenPair:
+    limiter = _rate_limiter()
+    key = auth_rate_limit_key(scope="auth_refresh", ip=_client_ip(request), identifier=None)
+    try:
+        check = limiter.check(db, key=key)
+        if check.blocked:
+            _raise_rate_limited(retry_after_seconds=check.retry_after_seconds)
+    except HTTPException:
+        raise
+    except Exception:
+        pass
+
     now = datetime.utcnow()
     token_hash = hash_refresh_token(payload.refresh_token)
     rt = db.execute(
         select(RefreshToken).where(RefreshToken.token_hash == token_hash)
     ).scalar_one_or_none()
     if rt is None or rt.revoked_at is not None or rt.expires_at <= now:
+        _maybe_record_failure(db, limiter, key=key)
         _unauthorized("Invalid refresh token")
 
     user = db.get(User, rt.user_id)
     if user is None:
+        _maybe_record_failure(db, limiter, key=key)
         _unauthorized("Invalid refresh token")
 
     # Rotate refresh token: revoke old, mint new
@@ -193,6 +309,7 @@ async def refresh(payload: RefreshRequest, db: Session = Depends(get_db)) -> Tok
     if device is not None and device.revoked_at is None:
         device.last_seen_at = now
 
+    limiter.reset(db, key=key)
     db.commit()
     return TokenPair(access_token=access, refresh_token=refresh_raw)
 
@@ -248,3 +365,99 @@ async def me(
     if user is None:
         _unauthorized()
     return MeResponse(user_id=user.id, email=user.email)
+
+
+@router.post(
+    "/password_reset/request",
+    response_model=PasswordResetAcceptedResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    operation_id="auth_password_reset_request",
+)
+async def password_reset_request(
+    payload: PasswordResetRequest,
+    db: Session = Depends(get_db),
+) -> PasswordResetAcceptedResponse:
+    email = normalize_email(payload.email)
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is not None:
+        now = datetime.utcnow()
+        raw = core_security.new_password_reset_token()
+        token_hash = hash_password_reset_token(raw)
+        row = PasswordResetToken(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=now + timedelta(minutes=settings.password_reset_token_ttl_minutes),
+            used_at=None,
+        )
+        db.add(row)
+        db.commit()
+
+    return PasswordResetAcceptedResponse()
+
+
+@router.post(
+    "/password_reset/confirm",
+    response_model=PasswordResetConfirmResponse,
+    operation_id="auth_password_reset_confirm",
+)
+async def password_reset_confirm(
+    payload: PasswordResetConfirmRequest,
+    db: Session = Depends(get_db),
+) -> PasswordResetConfirmResponse:
+    email = normalize_email(payload.email)
+
+    try:
+        validate_password_policy(payload.new_password)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Password does not meet security requirements",
+        )
+
+    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+
+    now = datetime.utcnow()
+    try:
+        token_hash = hash_password_reset_token(payload.token)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+    prt = db.execute(
+        select(PasswordResetToken)
+        .where(
+            PasswordResetToken.user_id == user.id,
+            PasswordResetToken.token_hash == token_hash,
+            PasswordResetToken.used_at.is_(None),
+        )
+        .with_for_update()
+    ).scalar_one_or_none()
+    if prt is None or prt.expires_at <= now:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token")
+
+    user.password_hash = hash_password(payload.new_password)
+    prt.used_at = now
+
+    devices = (
+        db.execute(select(Device).where(Device.user_id == user.id, Device.revoked_at.is_(None)))
+        .scalars()
+        .all()
+    )
+    for d in devices:
+        d.revoked_at = now
+
+    tokens = (
+        db.execute(
+            select(RefreshToken).where(
+                RefreshToken.user_id == user.id,
+                RefreshToken.revoked_at.is_(None),
+            )
+        )
+        .scalars()
+        .all()
+    )
+    for t in tokens:
+        t.revoked_at = now
+
+    db.commit()
+    return PasswordResetConfirmResponse()

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import threading
-from dataclasses import dataclass, field
+import time
+from datetime import datetime, timezone
 from typing import TypeAlias, TypedDict, cast
 
 from fastapi import APIRouter, WebSocket
@@ -10,7 +10,31 @@ from starlette.websockets import WebSocketDisconnect
 
 from app.core.config import settings
 from app.core.security import JSONValue, decode_access_token
-from app.ws.chat_fake import fake_chat_tokens
+from app.db.models import Save
+from app.db.session import SessionLocal
+from app.ws.chat_fake import LLMStreamCapture, stream_chat_tokens
+from app.metrics.prometheus import LLMChatMetricLabels, record_llm_chat_stream
+from app.db.models import LLMUsageEvent
+
+
+def _utcnow_naive() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+
+
+from app.ws.event_store import (
+    ack_device_cursor_and_maybe_trim as _ack_device_cursor_and_maybe_trim,
+    append_typed_event as _append_typed_event_db,
+    count_device_cursors as _count_device_cursors,
+    device_cursor_exists as _device_cursor_exists,
+    ensure_device_cursor as _ensure_device_cursor,
+    get_device_last_acked_seq as _get_device_last_acked_seq,
+    get_events_after as _get_events_after_db,
+)
+from app.ws.redis_notify import (
+    close_async_redis_pubsub,
+    decode_ws_v1_append_notify,
+    subscribe_ws_v1_stream,
+)
 
 
 PROTOCOL_VERSION = 1
@@ -28,59 +52,14 @@ class WSFrame(TypedDict, total=True):
     payload: JSONValue
 
 
-@dataclass
-class StreamState:
-    next_seq: int = 1
-    events: dict[int, WSFrame] = field(default_factory=dict)
-    last_acked_seq: int = 0
-
-
-_streams_lock = threading.Lock()
-_streams: dict[StreamKey, StreamState] = {}
-
-
-def _get_or_create_stream_state(stream_key: StreamKey) -> StreamState:
-    with _streams_lock:
-        state = _streams.get(stream_key)
-        if state is None:
-            state = StreamState()
-            _streams[stream_key] = state
-        return state
-
-
-def _append_typed_event(
-    stream_key: StreamKey,
-    *,
-    frame_type: str,
-    payload: JSONValue,
-    ack_required: bool = True,
-) -> WSFrame:
-    user_id, save_id = stream_key
-    with _streams_lock:
-        state = _streams.get(stream_key)
-        if state is None:
-            state = StreamState()
-            _streams[stream_key] = state
-
-        seq = state.next_seq
-        state.next_seq += 1
-
-        event: WSFrame = {
-            "protocol_version": PROTOCOL_VERSION,
-            "type": str(frame_type),
-            "seq": seq,
-            "cursor": seq,
-            "server_event_id": f"{user_id}:{save_id}:{seq}",
-            "ack_required": bool(ack_required),
-            "payload": payload,
-        }
-        state.events[seq] = event
-        return event
-
-
 def append_event(stream_key: StreamKey, payload: JSONValue, ack_required: bool = True) -> WSFrame:
-    return _append_typed_event(
-        stream_key, frame_type="EVENT", payload=payload, ack_required=ack_required
+    user_id, save_id = stream_key
+    return _append_typed_event_db(
+        user_id=user_id,
+        save_id=save_id,
+        frame_type="EVENT",
+        payload=payload,
+        ack_required=ack_required,
     )
 
 
@@ -91,37 +70,19 @@ def append_typed_event(
     payload: JSONValue,
     ack_required: bool = True,
 ) -> WSFrame:
-    return _append_typed_event(
-        stream_key, frame_type=frame_type, payload=payload, ack_required=ack_required
+    user_id, save_id = stream_key
+    return _append_typed_event_db(
+        user_id=user_id,
+        save_id=save_id,
+        frame_type=frame_type,
+        payload=payload,
+        ack_required=ack_required,
     )
 
 
 def get_events_after(stream_key: StreamKey, resume_from: int) -> list[WSFrame]:
-    if resume_from < 0:
-        return []
-
-    with _streams_lock:
-        state = _streams.get(stream_key)
-        if state is None:
-            return []
-        seqs = [s for s in state.events.keys() if s > resume_from]
-        seqs.sort()
-        return [state.events[s] for s in seqs]
-
-
-def _update_last_acked_seq(stream_key: StreamKey, cursor: int) -> None:
-    if cursor < 0:
-        return
-
-    with _streams_lock:
-        state = _streams.get(stream_key)
-        if state is None:
-            state = StreamState()
-            _streams[stream_key] = state
-
-        max_seq_in_log = state.next_seq - 1
-        bounded = min(cursor, max_seq_in_log)
-        state.last_acked_seq = max(state.last_acked_seq, bounded)
+    user_id, save_id = stream_key
+    return _get_events_after_db(user_id=user_id, save_id=save_id, resume_from=resume_from)
 
 
 def _control_frame(*, frame_type: str, cursor: int, payload: JSONValue = None) -> WSFrame:
@@ -157,6 +118,24 @@ def _get_user_id_from_access_token(token: str) -> str | None:
     return sub if isinstance(sub, str) and sub != "" else None
 
 
+def _normalize_device_id(device_id: str | None) -> str:
+    if device_id is None or device_id.strip() == "":
+        return "legacy"
+    return device_id.strip()
+
+
+def _is_owned_save(*, user_id: str, save_id: str) -> bool:
+    with SessionLocal() as db:
+        save = db.get(Save, save_id)
+        if save is None:
+            return False
+        if save.user_id != user_id:
+            return False
+        if save.deleted_at is not None:
+            return False
+        return True
+
+
 router = APIRouter()
 
 
@@ -164,6 +143,7 @@ router = APIRouter()
 async def ws_v1(websocket: WebSocket) -> None:
     save_id = websocket.query_params.get("save_id")
     resume_from_raw = websocket.query_params.get("resume_from")
+    device_id = _normalize_device_id(websocket.query_params.get("device_id"))
     if not save_id or resume_from_raw is None:
         await websocket.close(code=1008)
         return
@@ -185,42 +165,143 @@ async def ws_v1(websocket: WebSocket) -> None:
         await websocket.close(code=1008)
         return
 
+    owned = await asyncio.to_thread(_is_owned_save, user_id=user_id, save_id=save_id)
+    if not owned:
+        await websocket.close(code=1008)
+        return
+
+    if len(device_id) > int(settings.ws_max_device_id_length):
+        await websocket.close(code=1008)
+        return
+
     stream_key: StreamKey = (user_id, save_id)
-    state = _get_or_create_stream_state(stream_key)
+    device_exists = await asyncio.to_thread(
+        _device_cursor_exists, user_id=user_id, save_id=save_id, device_id=device_id
+    )
+    if not device_exists:
+        device_count = await asyncio.to_thread(
+            _count_device_cursors, user_id=user_id, save_id=save_id
+        )
+        if device_count >= settings.ws_max_devices_per_save:
+            await websocket.close(code=1008)
+            return
+
+    await asyncio.to_thread(
+        _ensure_device_cursor, user_id=user_id, save_id=save_id, device_id=device_id
+    )
 
     await websocket.accept()
 
     send_lock = asyncio.Lock()
+    last_sent_seq = 0
     interrupt_event: asyncio.Event | None = None
     stream_task: asyncio.Task[None] | None = None
+    tail_task: asyncio.Task[None] | None = None
 
-    await websocket.send_json(
+    hello_cursor = await asyncio.to_thread(
+        _get_device_last_acked_seq, user_id=user_id, save_id=save_id, device_id=device_id
+    )
+
+    async def _safe_send_json(frame: WSFrame) -> None:
+        nonlocal last_sent_seq
+        async with send_lock:
+            seq_obj = cast(object, frame.get("seq"))
+            seq_i: int | None = seq_obj if isinstance(seq_obj, int) else None
+            if seq_i is not None and seq_i > 0 and seq_i <= last_sent_seq:
+                return
+            await websocket.send_json(frame)
+            if seq_i is not None and seq_i > 0:
+                last_sent_seq = max(last_sent_seq, seq_i)
+
+    async def _get_last_sent_seq() -> int:
+        async with send_lock:
+            return int(last_sent_seq)
+
+    await _safe_send_json(
         _control_frame(
             frame_type="HELLO",
-            cursor=state.last_acked_seq,
+            cursor=hello_cursor,
             payload={"user_id": user_id, "save_id": save_id},
         )
     )
 
-    for event in get_events_after(stream_key, resume_from=resume_from):
-        await websocket.send_json(event)
+    replay_events = await asyncio.to_thread(get_events_after, stream_key, resume_from)
+    for event in replay_events:
+        await _safe_send_json(event)
 
-    async def _safe_send_json(frame: WSFrame) -> None:
-        async with send_lock:
-            await websocket.send_json(frame)
+    async def _drain_db_events_after_last_sent_seq() -> None:
+        resume_from_snapshot = await _get_last_sent_seq()
+        events = await asyncio.to_thread(
+            _get_events_after_db,
+            user_id=user_id,
+            save_id=save_id,
+            resume_from=resume_from_snapshot,
+        )
+        for ev in events:
+            await _safe_send_json(ev)
 
-    async def _run_fake_chat_stream(
+    async def _run_ws_v1_redis_tail() -> None:
+        try:
+            r, pubsub, channel = await subscribe_ws_v1_stream(user_id=user_id, save_id=save_id)
+        except Exception:
+            return
+
+        try:
+            await _drain_db_events_after_last_sent_seq()
+            async for msg in pubsub.listen():
+                if not isinstance(msg, dict):
+                    continue
+                msg_dict = cast(dict[str, object], msg)
+                if msg_dict.get("type") != "message":
+                    continue
+                notify = decode_ws_v1_append_notify(msg_dict.get("data"))
+                if notify is None:
+                    continue
+                if notify["user_id"] != user_id or notify["save_id"] != save_id:
+                    continue
+                await _drain_db_events_after_last_sent_seq()
+        except asyncio.CancelledError:
+            raise
+        except WebSocketDisconnect:
+            return
+        except RuntimeError:
+            return
+        except Exception:
+            return
+        finally:
+            try:
+                await close_async_redis_pubsub(r=r, pubsub=pubsub, channel=channel)
+            except Exception:
+                pass
+
+    async def _run_chat_stream(
         *, text: str, client_request_id: str | None, stop: asyncio.Event
     ) -> None:
+        started_at = _utcnow_naive()
+        start_mono = time.monotonic()
+        ttft_ms: int | None = None
+        output_chunks = 0
+        output_chars = 0
+        capture = LLMStreamCapture()
+
         interrupted = False
+        error: str | None = None
         try:
-            async for token in fake_chat_tokens(text):
+            async for token in stream_chat_tokens(text, stop=stop, capture=capture):
                 if stop.is_set():
                     interrupted = True
                     break
 
-                token_event = _append_typed_event(
-                    stream_key,
+                if ttft_ms is None:
+                    ttft_ms = int((time.monotonic() - start_mono) * 1000)
+
+                output_chunks += 1
+                output_chars += len(token)
+
+                token_event = await asyncio.to_thread(
+                    _append_typed_event_db,
+                    user_id=user_id,
+                    save_id=save_id,
                     frame_type="CHAT_TOKEN",
                     payload={"token": token, "client_request_id": client_request_id},
                     ack_required=True,
@@ -235,25 +316,91 @@ async def ws_v1(websocket: WebSocket) -> None:
                     break
 
                 await asyncio.sleep(0)
+            if stop.is_set():
+                interrupted = True
         except asyncio.CancelledError:
             interrupted = True
             raise
+        except Exception as e:
+            error = str(e)
         finally:
-            done_event = _append_typed_event(
-                stream_key,
+            done_event = await asyncio.to_thread(
+                _append_typed_event_db,
+                user_id=user_id,
+                save_id=save_id,
                 frame_type="CHAT_DONE",
                 payload={
                     "interrupted": bool(interrupted),
                     "client_request_id": client_request_id,
+                    "error": error,
                 },
                 ack_required=True,
             )
             try:
                 await _safe_send_json(done_event)
             except WebSocketDisconnect:
-                return
+                pass
             except RuntimeError:
-                return
+                pass
+
+            ended_at = _utcnow_naive()
+            latency_ms = max(0, int((time.monotonic() - start_mono) * 1000))
+
+            labels = LLMChatMetricLabels(
+                provider=capture.provider or "unknown",
+                api=capture.api or "unknown",
+                model=capture.model or "unknown",
+            )
+
+            try:
+                record_llm_chat_stream(
+                    labels=labels,
+                    latency_ms=latency_ms,
+                    ttft_ms=ttft_ms,
+                    output_chunks=output_chunks,
+                    output_chars=output_chars,
+                    interrupted=bool(interrupted),
+                    error=error,
+                    prompt_tokens=capture.prompt_tokens,
+                    completion_tokens=capture.completion_tokens,
+                    total_tokens=capture.total_tokens,
+                )
+            except Exception:
+                pass
+
+            def _persist_usage_row() -> None:
+                with SessionLocal() as db:
+                    row = LLMUsageEvent(
+                        user_id=user_id,
+                        save_id=save_id,
+                        provider=labels.provider,
+                        api=labels.api,
+                        model=labels.model,
+                        started_at=started_at,
+                        ended_at=ended_at,
+                        latency_ms=int(latency_ms),
+                        time_to_first_token_ms=ttft_ms,
+                        output_chunks=int(output_chunks),
+                        output_chars=int(output_chars),
+                        interrupted=bool(interrupted),
+                        error=error,
+                        prompt_tokens=capture.prompt_tokens,
+                        completion_tokens=capture.completion_tokens,
+                        total_tokens=capture.total_tokens,
+                    )
+                    db.add(row)
+                    try:
+                        db.commit()
+                    except Exception:
+                        try:
+                            db.rollback()
+                        except Exception:
+                            pass
+
+            try:
+                await asyncio.to_thread(_persist_usage_row)
+            except Exception:
+                pass
 
     async def _interrupt_active_stream() -> None:
         nonlocal interrupt_event, stream_task
@@ -275,6 +422,32 @@ async def ws_v1(websocket: WebSocket) -> None:
             interrupt_event = None
             stream_task = None
 
+    tail_task = asyncio.create_task(_run_ws_v1_redis_tail())
+
+    async def _cleanup_background_tasks() -> None:
+        nonlocal interrupt_event, stream_task, tail_task
+        try:
+            if interrupt_event is not None:
+                interrupt_event.set()
+            if stream_task is not None and not stream_task.done():
+                _ = stream_task.cancel()
+                try:
+                    await stream_task
+                except BaseException:
+                    pass
+        except Exception:
+            pass
+
+        try:
+            if tail_task is not None and not tail_task.done():
+                _ = tail_task.cancel()
+                try:
+                    await tail_task
+                except BaseException:
+                    pass
+        except Exception:
+            pass
+
     try:
         while True:
             raw_obj = cast(object, await websocket.receive_json())
@@ -290,16 +463,27 @@ async def ws_v1(websocket: WebSocket) -> None:
                 if not isinstance(cursor_val, int):
                     cursor_val = msg.get("seq")
                 if isinstance(cursor_val, int):
-                    _update_last_acked_seq(stream_key, cursor=cursor_val)
+                    _ = await asyncio.to_thread(
+                        _ack_device_cursor_and_maybe_trim,
+                        user_id=user_id,
+                        save_id=save_id,
+                        device_id=device_id,
+                        cursor=cursor_val,
+                    )
                 continue
 
             if msg_type == "PING":
-                latest = _get_or_create_stream_state(stream_key)
+                latest_cursor = await asyncio.to_thread(
+                    _get_device_last_acked_seq,
+                    user_id=user_id,
+                    save_id=save_id,
+                    device_id=device_id,
+                )
                 pong_payload = cast(JSONValue, msg.get("payload"))
                 await _safe_send_json(
                     _control_frame(
                         frame_type="PONG",
-                        cursor=latest.last_acked_seq,
+                        cursor=latest_cursor,
                         payload=pong_payload,
                     )
                 )
@@ -330,7 +514,7 @@ async def ws_v1(websocket: WebSocket) -> None:
                 await _interrupt_active_stream()
                 interrupt_event = asyncio.Event()
                 stream_task = asyncio.create_task(
-                    _run_fake_chat_stream(
+                    _run_chat_stream(
                         text=text,
                         client_request_id=client_request_id,
                         stop=interrupt_event,
@@ -342,15 +526,6 @@ async def ws_v1(websocket: WebSocket) -> None:
             return
 
     except WebSocketDisconnect:
-        try:
-            if interrupt_event is not None:
-                interrupt_event.set()
-            if stream_task is not None and not stream_task.done():
-                _ = stream_task.cancel()
-                try:
-                    await stream_task
-                except Exception:
-                    pass
-        except Exception:
-            pass
         return
+    finally:
+        await _cleanup_background_tasks()

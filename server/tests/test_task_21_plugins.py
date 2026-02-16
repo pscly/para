@@ -12,9 +12,9 @@ from typing import cast
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.core.config import settings
+from app.core.security import hash_password
 from app.db.base import Base
-from app.db.models import AuditLog, PluginPackage
+from app.db.models import AdminUser, AuditLog, PluginPackage
 from app.db.session import SessionLocal, engine
 from app.main import app
 
@@ -44,6 +44,33 @@ def _register(client: TestClient, *, email: str, password: str) -> TokenPair:
     return data
 
 
+def _create_admin(*, role: str, password: str) -> AdminUser:
+    with SessionLocal() as db:
+        admin = AdminUser(
+            email=_random_email(),
+            password_hash=hash_password(password),
+            role=role,
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        return admin
+
+
+def _admin_login(client: TestClient, *, email: str, password: str) -> str:
+    resp = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert resp.status_code == 200, resp.text
+    data = cast(dict[str, object], resp.json())
+    assert data.get("token_type") == "bearer"
+    token = data.get("access_token")
+    assert isinstance(token, str) and token != ""
+    return token
+
+
 def test_task_21_plugins_upload_approve_list_download() -> None:
     email = _random_email()
     password = "password123"
@@ -52,6 +79,15 @@ def test_task_21_plugins_upload_approve_list_download() -> None:
     version = "0.0.1"
 
     with TestClient(app) as client:
+        super_pw = f"pw-{uuid.uuid4().hex}"
+        op_pw = f"pw-{uuid.uuid4().hex}"
+        super_admin = _create_admin(role="super_admin", password=super_pw)
+        operator = _create_admin(role="operator", password=op_pw)
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        op_token = _admin_login(client, email=operator.email, password=op_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+        op_headers = {"Authorization": f"Bearer {op_token}"}
+
         tokens = _register(client, email=email, password=password)
         access = tokens["access_token"]
         authed = {"Authorization": f"Bearer {access}"}
@@ -69,7 +105,7 @@ def test_task_21_plugins_upload_approve_list_download() -> None:
 
         upload_resp = client.post(
             "/api/v1/plugins",
-            headers={"X-Admin-Secret": settings.admin_review_secret},
+            headers=super_headers,
             json={"manifest_json": manifest_json, "code": code},
         )
         assert upload_resp.status_code == 201, upload_resp.text
@@ -78,6 +114,13 @@ def test_task_21_plugins_upload_approve_list_download() -> None:
         assert upload_body.get("version") == version
         assert upload_body.get("status") == "pending"
         assert upload_body.get("sha256") == expected_sha256
+
+        operator_upload = client.post(
+            "/api/v1/plugins",
+            headers=op_headers,
+            json={"manifest_json": manifest_json, "code": code},
+        )
+        assert operator_upload.status_code == 403, operator_upload.text
 
         list_before = client.get("/api/v1/plugins", headers=authed)
         assert list_before.status_code == 200, list_before.text
@@ -89,7 +132,7 @@ def test_task_21_plugins_upload_approve_list_download() -> None:
 
         approve_resp = client.post(
             f"/api/v1/admin/review/plugins/{plugin_id}/{version}:approve",
-            headers={"X-Admin-Secret": settings.admin_review_secret},
+            headers=super_headers,
         )
         assert approve_resp.status_code == 200, approve_resp.text
         approve_body = cast(dict[str, object], approve_resp.json())
@@ -142,3 +185,18 @@ def test_task_21_plugins_upload_approve_list_download() -> None:
                 .all()
             )
             assert len(logs) >= 1
+            assert any(l.actor == f"admin:{super_admin.id}" for l in logs)
+
+            upload_logs = list(
+                db.execute(
+                    select(AuditLog).where(
+                        AuditLog.target_type == "plugin_package",
+                        AuditLog.target_id == pkg.id,
+                        AuditLog.action == "plugin.upload",
+                    )
+                )
+                .scalars()
+                .all()
+            )
+            assert len(upload_logs) >= 1
+            assert any(l.actor == f"admin:{super_admin.id}" for l in upload_logs)

@@ -52,6 +52,15 @@ def _get_user_id(client: TestClient, access_token: str) -> str:
     return user_id
 
 
+def _create_save_id(client: TestClient, *, headers: dict[str, str], name: str) -> str:
+    r = client.post("/api/v1/saves", json={"name": name}, headers=headers)
+    assert r.status_code == 201, r.text
+    data = cast(dict[str, object], r.json())
+    save_id = data.get("id")
+    assert isinstance(save_id, str) and save_id
+    return save_id
+
+
 def _recv_json_dict(ws: WebSocketTestSession) -> dict[str, object]:
     raw = cast(object, ws.receive_json())
     assert isinstance(raw, dict), f"expected dict json frame, got: {type(raw)!r}"
@@ -84,7 +93,6 @@ def _assert_is_event_frame(msg: dict[str, object]) -> None:
 def test_ws_v1_chat_stream_send_emits_tokens_then_done() -> None:
     email = _random_email()
     password = "password123"
-    save_id = str(uuid.uuid4())
     client_request_id = str(uuid.uuid4())
 
     with TestClient(app) as client:
@@ -94,8 +102,9 @@ def test_ws_v1_chat_stream_send_emits_tokens_then_done() -> None:
         user_id = _get_user_id(client, access_token=access)
         assert user_id
 
-        url = f"/ws/v1?save_id={save_id}&resume_from=0"
         headers = {"Authorization": f"Bearer {access}"}
+        save_id = _create_save_id(client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}")
+        url = f"/ws/v1?save_id={save_id}&resume_from=0"
         with client.websocket_connect(url, headers=headers) as ws:
             _ = _recv_until_type(ws, "HELLO")
 
@@ -136,7 +145,6 @@ def test_ws_v1_chat_stream_send_emits_tokens_then_done() -> None:
 def test_ws_v1_chat_stream_interrupt_stops_and_done_interrupted_true() -> None:
     email = _random_email()
     password = "password123"
-    save_id = str(uuid.uuid4())
     client_request_id = str(uuid.uuid4())
     long_text = "x" * 20_000
 
@@ -146,8 +154,9 @@ def test_ws_v1_chat_stream_interrupt_stops_and_done_interrupted_true() -> None:
         user_id = _get_user_id(client, access_token=access)
         assert user_id
 
-        url = f"/ws/v1?save_id={save_id}&resume_from=0"
         headers = {"Authorization": f"Bearer {access}"}
+        save_id = _create_save_id(client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}")
+        url = f"/ws/v1?save_id={save_id}&resume_from=0"
         with client.websocket_connect(url, headers=headers) as ws:
             _ = _recv_until_type(ws, "HELLO")
 

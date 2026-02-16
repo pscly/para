@@ -8,20 +8,20 @@
 from __future__ import annotations
 
 import hashlib
-import hmac
 import json
 from datetime import datetime
 from typing import cast
 
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.api.v1.admin_deps import require_super_admin
 from app.api.v1.saves import require_user_id
 from app.core.config import settings
-from app.db.models import PluginPackage
+from app.db.models import AdminUser, AuditLog, PluginPackage
 from app.db.session import get_db
 
 
@@ -58,21 +58,12 @@ def _bad_request(detail: str) -> HTTPException:
     return HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=detail)
 
 
-def _unauthorized(detail: str = "Unauthorized") -> HTTPException:
-    return HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail=detail)
-
-
-def _require_admin_secret(x_admin_secret: str | None) -> None:
-    expected = settings.admin_review_secret
-    provided = x_admin_secret or ""
-    if expected == "" or provided == "":
-        raise _unauthorized("Missing admin secret")
-    if not hmac.compare_digest(provided, expected):
-        raise _unauthorized("Invalid admin secret")
-
-
 def _canonical_json(obj: object) -> str:
     return json.dumps(obj, ensure_ascii=True, separators=(",", ":"), sort_keys=True)
+
+
+def _audit_upload_metadata(*, plugin_id: str, version: str, sha256: str) -> str:
+    return _canonical_json({"plugin_id": plugin_id, "version": version, "sha256": sha256})
 
 
 def _extract_manifest_fields(manifest_obj: object) -> tuple[str, str, str, str, object, str, str]:
@@ -119,14 +110,19 @@ def _extract_manifest_fields(manifest_obj: object) -> tuple[str, str, str, str, 
 async def plugins_upload_admin(
     payload: PluginUploadRequest,
     db: Session = Depends(get_db),
-    x_admin_secret: str | None = Header(None, alias="X-Admin-Secret"),
+    admin: AdminUser = Depends(require_super_admin),
 ) -> PluginUploadResponse:
-    _require_admin_secret(x_admin_secret)
-
     if payload.manifest_json.strip() == "":
         raise _bad_request("manifest_json must be non-empty")
     if payload.code == "":
         raise _bad_request("code must be non-empty")
+
+    payload_bytes = len(payload.manifest_json.encode("utf-8")) + len(payload.code.encode("utf-8"))
+    if payload_bytes > int(settings.plugins_upload_max_bytes):
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Plugin payload too large",
+        )
 
     try:
         parsed = cast(object, json.loads(payload.manifest_json))
@@ -161,6 +157,16 @@ async def plugins_upload_admin(
             status_code=status.HTTP_409_CONFLICT,
             detail="Plugin package already exists",
         )
+
+    log = AuditLog(
+        actor=f"admin:{admin.id}",
+        action="plugin.upload",
+        target_type="plugin_package",
+        target_id=pkg.id,
+        metadata_json=_audit_upload_metadata(plugin_id=plugin_id, version=version, sha256=sha256),
+        created_at=now,
+    )
+    db.add(log)
 
     db.commit()
 

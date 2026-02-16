@@ -39,7 +39,18 @@ def task_17_generate_gallery_image(gallery_id: str) -> dict[str, object]:
         if item is None:
             return {"ok": False, "error": "gallery_item_not_found"}
 
+        if item.status == "canceled":
+            return {"ok": False, "gallery_id": gallery_id, "status": "canceled"}
+
+        if item.status == "pending":
+            item.status = "running"
+            db.commit()
+            db.refresh(item)
+
         try:
+            if item.status == "canceled":
+                return {"ok": False, "gallery_id": item.id, "status": "canceled"}
+
             base_dir = Path(item.storage_dir)
             base_dir.mkdir(parents=True, exist_ok=True)
 
@@ -49,6 +60,10 @@ def task_17_generate_gallery_image(gallery_id: str) -> dict[str, object]:
             png_bytes = _pick_png_bytes(item.prompt)
             _ = image_path.write_bytes(png_bytes)
             _ = thumb_path.write_bytes(png_bytes)
+
+            db.refresh(item)
+            if item.status == "canceled":
+                return {"ok": False, "gallery_id": item.id, "status": "canceled"}
 
             item.status = "completed"
             item.error = None
@@ -62,6 +77,14 @@ def task_17_generate_gallery_image(gallery_id: str) -> dict[str, object]:
                 "status": item.status,
             }
         except Exception as e:
+            try:
+                db.refresh(item)
+            except Exception:
+                pass
+
+            if item.status == "canceled":
+                return {"ok": False, "gallery_id": item.id, "status": "canceled"}
+
             item.status = "failed"
             item.error = str(e)[:4000]
             db.commit()

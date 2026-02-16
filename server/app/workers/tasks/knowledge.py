@@ -8,18 +8,13 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
-from sqlalchemy import delete, text
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
 from app.db.models import KnowledgeChunk, KnowledgeMaterial
 from app.db.session import engine
-from app.services.embedding_local import EMBED_DIM, EMBED_MODEL, local_embed
+from app.services.embedding_provider import embed_text
 from app.workers.celery_app import celery_app
-
-
-def _ensure_pgvector(db: Session) -> None:
-    _ = db.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-    db.commit()
 
 
 def _read_text_file(path: Path) -> str:
@@ -36,7 +31,7 @@ def _read_pdf_text(path: Path) -> str:
     parts: list[str] = []
     for page in reader.pages:
         raw = page.extract_text()
-        txt = raw if isinstance(raw, str) else ""
+        txt = raw or ""
         if txt:
             parts.append(txt)
     return "\n\n".join(parts).strip()
@@ -89,8 +84,6 @@ def _chunk_text(text_in: str, *, max_chars: int = 800, overlap: int = 120) -> li
 def task_13_index_knowledge_material(material_id: str) -> dict[str, object]:
     now = datetime.utcnow()
     with Session(engine) as db:
-        _ensure_pgvector(db)
-
         material = db.get(KnowledgeMaterial, material_id)
         if material is None:
             return {"ok": False, "error": "material_not_found"}
@@ -114,16 +107,16 @@ def task_13_index_knowledge_material(material_id: str) -> dict[str, object]:
             db.commit()
 
             for idx, content in enumerate(chunks):
-                emb = local_embed(content)
+                emb = embed_text(content)
                 db.add(
                     KnowledgeChunk(
                         material_id=material.id,
                         save_id=material.save_id,
                         chunk_index=idx,
                         content=content,
-                        embedding_model=EMBED_MODEL,
-                        embedding_dim=EMBED_DIM,
-                        embedding=emb,
+                        embedding_model=emb.embedding_model,
+                        embedding_dim=int(emb.embedding_dim),
+                        embedding=emb.embedding,
                         created_at=now,
                     )
                 )

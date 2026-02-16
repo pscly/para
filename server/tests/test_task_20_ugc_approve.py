@@ -13,9 +13,9 @@ from typing import cast
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
 
-from app.core.config import settings
+from app.core.security import hash_password
 from app.db.base import Base
-from app.db.models import AuditLog
+from app.db.models import AdminUser, AuditLog
 from app.db.session import engine, SessionLocal
 from app.main import app
 
@@ -45,6 +45,33 @@ def _register(client: TestClient, *, email: str, password: str) -> TokenPair:
     return data
 
 
+def _create_admin(*, role: str, password: str) -> AdminUser:
+    with SessionLocal() as db:
+        admin = AdminUser(
+            email=_random_email(),
+            password_hash=hash_password(password),
+            role=role,
+            is_active=True,
+        )
+        db.add(admin)
+        db.commit()
+        db.refresh(admin)
+        return admin
+
+
+def _admin_login(client: TestClient, *, email: str, password: str) -> str:
+    resp = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert resp.status_code == 200, resp.text
+    body = cast(dict[str, object], resp.json())
+    assert body.get("token_type") == "bearer"
+    token = body.get("access_token")
+    assert isinstance(token, str) and token != ""
+    return token
+
+
 def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None:
     email = _random_email()
     password = "password123"
@@ -53,6 +80,11 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
         tokens = _register(client, email=email, password=password)
         access = tokens["access_token"]
         headers = {"Authorization": f"Bearer {access}"}
+
+        admin_pw = f"pw-{uuid.uuid4().hex}"
+        admin = _create_admin(role="super_admin", password=admin_pw)
+        admin_token = _admin_login(client, email=admin.email, password=admin_pw)
+        admin_headers = {"Authorization": f"Bearer {admin_token}"}
 
         manifest_obj = {
             "name": "hello-ugc",
@@ -84,7 +116,7 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
 
         approve_resp = client.post(
             f"/api/v1/admin/review/ugc/{asset_id}:approve",
-            headers={"X-Admin-Secret": settings.admin_review_secret},
+            headers=admin_headers,
         )
         assert approve_resp.status_code == 200, approve_resp.text
         approve_body = cast(dict[str, object], approve_resp.json())
@@ -109,6 +141,7 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
                 .all()
             )
             assert len(logs) >= 1
+            assert any(l.actor == f"admin:{admin.id}" for l in logs)
 
         repo_root = Path(__file__).resolve().parents[2]
         evidence_path = repo_root / ".sisyphus" / "evidence" / "task-20-ugc-approve.txt"
