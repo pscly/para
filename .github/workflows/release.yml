@@ -1,0 +1,98 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v0.*.*"
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  windows-nsis:
+    name: windows-nsis
+    needs: ci
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Version check (tag must match repo)
+        run: python scripts/sync_versions.py --check
+
+      - name: Install client dependencies (npm ci)
+        run: npm -C client ci
+
+      - name: Package (Windows NSIS)
+        run: npm -C client run package:win
+
+      - name: Resolve installer + sha256
+        id: assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $distRoot = Join-Path $PWD 'client/dist-electron'
+          if (!(Test-Path $distRoot)) {
+            throw "dist directory not found: $distRoot"
+          }
+
+          $exeFiles = Get-ChildItem -Path $distRoot -Recurse -File -Filter '*.exe' |
+            Where-Object {
+              $_.FullName -notmatch '(?i)\\win-unpacked\\' -and
+              $_.Name -notmatch '(?i)unpacked'
+            }
+
+          if (-not $exeFiles -or $exeFiles.Count -lt 1) {
+            throw "No .exe files found under $distRoot (expected NSIS installer)"
+          }
+
+          $installer = $exeFiles |
+            Where-Object { $_.Name -match '(?i)setup' } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+
+          if (-not $installer) {
+            $installer = $exeFiles | Sort-Object Length -Descending | Select-Object -First 1
+          }
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash.ToLower()
+          $shaPath = "$($installer.FullName).sha256"
+          "$hash  $($installer.Name)" | Out-File -FilePath $shaPath -Encoding ascii
+
+          $workspace = $env:GITHUB_WORKSPACE.TrimEnd('\\') + '\\'
+          $installerRel = $installer.FullName.Replace($workspace, '')
+          $shaRel = $shaPath.Replace($workspace, '')
+
+          "installer_path=$installerRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256_path=$shaRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            ${{ steps.assets.outputs.installer_path }}
+            ${{ steps.assets.outputs.sha256_path }}

@@ -1,0 +1,94 @@
+name: deploy
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: true
+
+jobs:
+  deploy-prod:
+    name: deploy-prod
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main'
+      }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Setup ssh-agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSHKEY }}
+
+      - name: Add SSH known_hosts (pscly.cc)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          ssh-keyscan -H pscly.cc >> ~/.ssh/known_hosts
+
+      - name: Build release tarball
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          tar -czf "release-${DEPLOY_SHA}.tgz" \
+            --exclude=.git \
+            --exclude=.env \
+            --exclude=.env.* \
+            --exclude=.sisyphus \
+            --exclude=node_modules \
+            --exclude=.venv \
+            --exclude=client/dist-electron \
+            --exclude=.pytest_cache \
+            --exclude=__pycache__ \
+            .
+
+      - name: Upload release tarball
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "mkdir -p /root/dockers/para/releases"
+          scp -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "release-${DEPLOY_SHA}.tgz" "root@pscly.cc:/root/dockers/para/releases/${DEPLOY_SHA}.tgz"
+
+      - name: Remote deploy
+        shell: bash
+        env:
+          DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "bash -s -- ${DEPLOY_SHA}" < deploy/prod/remote_deploy.sh
+
+      - name: Smoke test (public)
+        shell: bash
+        run: |
+          set -euo pipefail
+          url="https://para.pscly.cc/api/v1/health"
+          for i in {1..30}; do
+            if curl -fsS "$url" | python3 -c 'import json,sys; j=json.load(sys.stdin); s=j.get("status"); assert s=="ok", f"status={s}"' >/dev/null 2>&1; then
+              echo "Smoke OK"
+              exit 0
+            fi
+            echo "Waiting for health... (${i}/30)"
+            sleep 2
+          done
+          echo "Smoke failed: $url" >&2
+          exit 1

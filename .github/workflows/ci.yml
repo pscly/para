@@ -1,0 +1,99 @@
+name: ci
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v3
+
+      - name: Install server dependencies (uv locked)
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd server
+          uv sync --locked --dev
+
+      - name: Install client dependencies (npm ci)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client ci
+
+      - name: Start dependencies (Postgres + Redis)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          docker compose -f docker-compose.yml --env-file .env.example up -d postgres redis
+
+          postgres_id="$(docker compose -f docker-compose.yml --env-file .env.example ps -q postgres)"
+          redis_id="$(docker compose -f docker-compose.yml --env-file .env.example ps -q redis)"
+
+          if [[ -z "$postgres_id" || -z "$redis_id" ]]; then
+            echo "Failed to resolve container IDs via docker compose ps -q" >&2
+            docker compose -f docker-compose.yml --env-file .env.example ps >&2 || true
+            exit 1
+          fi
+
+          # Wait for healthchecks declared in docker-compose.yml.
+          for i in {1..60}; do
+            pg_health="$(docker inspect -f '{{.State.Health.Status}}' "$postgres_id" 2>/dev/null || true)"
+            redis_health="$(docker inspect -f '{{.State.Health.Status}}' "$redis_id" 2>/dev/null || true)"
+
+            if [[ "$pg_health" == "healthy" && "$redis_health" == "healthy" ]]; then
+              echo "Dependencies healthy."
+              exit 0
+            fi
+
+            echo "Waiting for deps... postgres=$pg_health redis=$redis_health (attempt $i/60)"
+            sleep 2
+          done
+
+          echo "Dependencies did not become healthy in time." >&2
+          docker compose -f docker-compose.yml --env-file .env.example ps >&2 || true
+          docker logs "$postgres_id" >&2 || true
+          docker logs "$redis_id" >&2 || true
+          exit 1
+
+      - name: Run gating script
+        shell: bash
+        env:
+          DATABASE_URL: postgresql+psycopg://para:para@127.0.0.1:5432/para
+          CELERY_BROKER_URL: redis://127.0.0.1:6379/0
+          WS_REDIS_URL: redis://127.0.0.1:6379/0
+        run: |
+          set -euo pipefail
+          ./scripts/ci.sh
+
+      - name: Cleanup docker compose
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose -f docker-compose.yml --env-file .env.example down -v

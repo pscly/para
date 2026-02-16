@@ -1,0 +1,73 @@
+name: macos-build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+        working-directory: client
+
+      - name: Enable code signing (optional)
+        if: ${{ secrets.CSC_LINK != '' }}
+        shell: bash
+        run: |
+          echo "CSC_LINK=${{ secrets.CSC_LINK }}" >> "$GITHUB_ENV"
+          if [ "${{ secrets.CSC_KEY_PASSWORD }}" != "" ]; then
+            echo "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" >> "$GITHUB_ENV"
+          fi
+
+      - name: Disable code signing auto-discovery (when no cert)
+        if: ${{ secrets.CSC_LINK == '' }}
+        shell: bash
+        run: |
+          # 没有证书时，明确禁止从 runner keychain 自动发现 identity，避免 electron-builder 报错
+          echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+
+      - name: Enable notarization (optional, Apple ID)
+        if: ${{ secrets.CSC_LINK != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+        shell: bash
+        run: |
+          echo "APPLE_ID=${{ secrets.APPLE_ID }}" >> "$GITHUB_ENV"
+          echo "APPLE_APP_SPECIFIC_PASSWORD=${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}" >> "$GITHUB_ENV"
+          echo "APPLE_TEAM_ID=${{ secrets.APPLE_TEAM_ID }}" >> "$GITHUB_ENV"
+
+      - name: Enable notarization (optional, App Store Connect API key)
+        if: ${{ secrets.CSC_LINK != '' && secrets.APPLE_API_KEY != '' && secrets.APPLE_API_KEY_ID != '' && secrets.APPLE_API_ISSUER != '' }}
+        shell: bash
+        run: |
+          echo "APPLE_API_KEY=${{ secrets.APPLE_API_KEY }}" >> "$GITHUB_ENV"
+          echo "APPLE_API_KEY_ID=${{ secrets.APPLE_API_KEY_ID }}" >> "$GITHUB_ENV"
+          echo "APPLE_API_ISSUER=${{ secrets.APPLE_API_ISSUER }}" >> "$GITHUB_ENV"
+
+      - name: Package (macOS)
+        run: npm run package:mac
+        working-directory: client
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-dist-electron
+          path: client/dist-electron/**
+          if-no-files-found: error
+          retention-days: 7
