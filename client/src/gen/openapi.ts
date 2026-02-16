@@ -21,6 +21,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/config/audit_logs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Audit Logs List */
+        get: operations["admin_audit_logs_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/config/audit_logs:cleanup": {
         parameters: {
             query?: never;
@@ -92,6 +109,78 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/llm/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Llm Channels List */
+        get: operations["admin_llm_channels_list"];
+        put?: never;
+        /** Admin Llm Channels Create */
+        post: operations["admin_llm_channels_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/llm/channels/{channel_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Llm Channels Get */
+        get: operations["admin_llm_channels_get"];
+        put?: never;
+        post?: never;
+        /** Admin Llm Channels Delete */
+        delete: operations["admin_llm_channels_delete"];
+        options?: never;
+        head?: never;
+        /** Admin Llm Channels Update */
+        patch: operations["admin_llm_channels_update"];
+        trace?: never;
+    };
+    "/api/v1/admin/llm/channels/{channel_id}:test": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Llm Channels Test */
+        post: operations["admin_llm_channels_test"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/llm/routing": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Llm Routing Get */
+        get: operations["admin_llm_routing_get"];
+        /** Admin Llm Routing Put */
+        put: operations["admin_llm_routing_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/metrics/summary": {
         parameters: {
             query?: never;
@@ -101,6 +190,40 @@ export interface paths {
         };
         /** Metrics Summary */
         get: operations["admin_metrics_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/review/plugins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Review Plugins Queue List */
+        get: operations["admin_review_plugins_queue_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/review/plugins/{plugin_id}/{version}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Review Plugins Queue Detail */
+        get: operations["admin_review_plugins_queue_detail"];
         put?: never;
         post?: never;
         delete?: never;
@@ -126,6 +249,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/review/plugins/{plugin_id}/{version}:note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Review Plugins Queue Note */
+        post: operations["admin_review_plugins_queue_note"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/review/plugins/{plugin_id}/{version}:reject": {
         parameters: {
             query?: never;
@@ -143,6 +283,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/review/ugc": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Review Ugc Queue List */
+        get: operations["admin_review_ugc_queue_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/review/ugc/{asset_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Review Ugc Queue Detail */
+        get: operations["admin_review_ugc_queue_detail"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/review/ugc/{asset_id}:approve": {
         parameters: {
             query?: never;
@@ -154,6 +328,23 @@ export interface paths {
         put?: never;
         /** Admin Review Ugc Approve */
         post: operations["admin_review_ugc_approve"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/review/ugc/{asset_id}:note": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Review Ugc Queue Note */
+        post: operations["admin_review_ugc_queue_note"];
         delete?: never;
         options?: never;
         head?: never;
@@ -222,6 +413,40 @@ export interface paths {
         get: operations["auth_me"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password_reset/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Password Reset Confirm */
+        post: operations["auth_password_reset_confirm"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/password_reset/request": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Password Reset Request */
+        post: operations["auth_password_reset_request"];
         delete?: never;
         options?: never;
         head?: never;
@@ -330,6 +555,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/gallery/items/{gallery_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Gallery Item Cancel */
+        post: operations["gallery_item_cancel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/gallery/items/{gallery_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Gallery Item Download */
+        get: operations["gallery_item_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/health": {
         parameters: {
             query?: never;
@@ -376,6 +635,24 @@ export interface paths {
         get: operations["knowledge_materials_get"];
         put?: never;
         post?: never;
+        /** Knowledge Materials Delete */
+        delete: operations["knowledge_materials_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/knowledge/materials/{material_id}/reindex": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Knowledge Materials Reindex */
+        post: operations["knowledge_materials_reindex"];
         delete?: never;
         options?: never;
         head?: never;
@@ -755,6 +1032,33 @@ export interface components {
              */
             token_type: string;
         };
+        /** AuditLogListItem */
+        AuditLogListItem: {
+            /** Action */
+            action: string;
+            /** Actor */
+            actor: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Metadata */
+            metadata: unknown | string;
+            /** Target Id */
+            target_id: string;
+            /** Target Type */
+            target_type: string;
+        };
+        /** AuditLogListResponse */
+        AuditLogListResponse: {
+            /** Items */
+            items?: components["schemas"]["AuditLogListItem"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
         /** Body_knowledge_materials_create */
         Body_knowledge_materials_create: {
             /**
@@ -777,6 +1081,26 @@ export interface components {
             /** Manifest Json */
             manifest_json: string;
         };
+        /** DependencyStatus */
+        DependencyStatus: {
+            /**
+             * Detail
+             * @description 简短排障信息（不包含敏感信息）
+             */
+            detail?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /**
+             * Mode
+             * @description worker 模式：eager/remote
+             */
+            mode?: string | null;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ok" | "error";
+        };
         /** DreamTriggerRequest */
         DreamTriggerRequest: {
             /** Content */
@@ -795,6 +1119,13 @@ export interface components {
             dream_entry_id?: string | null;
             /** Task Id */
             task_id: string;
+        };
+        /** GalleryCancelResponse */
+        GalleryCancelResponse: {
+            /** Gallery Id */
+            gallery_id: string;
+            /** Status */
+            status: string;
         };
         /** GalleryGenerateRequest */
         GalleryGenerateRequest: {
@@ -821,19 +1152,32 @@ export interface components {
             created_at: string;
             /** Id */
             id: string;
-            /** Image Data Url */
-            image_data_url?: string | null;
             /** Prompt */
             prompt: string;
             /** Status */
             status: string;
-            /** Thumb Data Url */
-            thumb_data_url?: string | null;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /** HealthDependencies */
+        HealthDependencies: {
+            db: components["schemas"]["DependencyStatus"];
+            pgvector: components["schemas"]["DependencyStatus"];
+            redis: components["schemas"]["DependencyStatus"];
+            worker: components["schemas"]["DependencyStatus"];
+        };
+        /** HealthResponse */
+        HealthResponse: {
+            dependencies: components["schemas"]["HealthDependencies"];
+            /**
+             * Status
+             * @description 整体健康状态；必须与 dependencies 的状态一致
+             * @enum {string}
+             */
+            status: "ok" | "degraded";
         };
         /** KnowledgeCitation */
         KnowledgeCitation: {
@@ -853,6 +1197,16 @@ export interface components {
         /** KnowledgeMaterialCreateResponse */
         KnowledgeMaterialCreateResponse: {
             material: components["schemas"]["KnowledgeMaterialOut"];
+        };
+        /** KnowledgeMaterialDeleteResponse */
+        KnowledgeMaterialDeleteResponse: {
+            /** Material Id */
+            material_id: string;
+            /**
+             * Ok
+             * @default true
+             */
+            ok: boolean;
         };
         /** KnowledgeMaterialOut */
         KnowledgeMaterialOut: {
@@ -879,6 +1233,12 @@ export interface components {
              */
             updated_at: string;
         };
+        /** KnowledgeMaterialReindexResponse */
+        KnowledgeMaterialReindexResponse: {
+            material: components["schemas"]["KnowledgeMaterialOut"];
+            /** Task Id */
+            task_id?: string | null;
+        };
         /** KnowledgeQueryRequest */
         KnowledgeQueryRequest: {
             /** Query */
@@ -897,6 +1257,113 @@ export interface components {
             answer: string;
             /** Citations */
             citations: components["schemas"]["KnowledgeCitation"][];
+        };
+        /** LLMChannelCreate */
+        LLMChannelCreate: {
+            /** Api Key */
+            api_key: string;
+            /** Base Url */
+            base_url: string;
+            /**
+             * Default Model
+             * @default
+             */
+            default_model: string;
+            /**
+             * Enabled
+             * @default true
+             */
+            enabled: boolean;
+            /** Name */
+            name: string;
+            /**
+             * Purpose
+             * @default chat
+             */
+            purpose: string;
+            /**
+             * Timeout Ms
+             * @default 60000
+             */
+            timeout_ms: number;
+            /**
+             * Weight
+             * @default 100
+             */
+            weight: number;
+        };
+        /** LLMChannelListResponse */
+        LLMChannelListResponse: {
+            /** Items */
+            items?: components["schemas"]["LLMChannelOut"][];
+        };
+        /** LLMChannelOut */
+        LLMChannelOut: {
+            /** Api Key Masked */
+            api_key_masked: string | null;
+            /** Api Key Present */
+            api_key_present: boolean;
+            /** Base Url */
+            base_url: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Default Model */
+            default_model: string;
+            /** Enabled */
+            enabled: boolean;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Purpose */
+            purpose: string;
+            /** Timeout Ms */
+            timeout_ms: number;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Weight */
+            weight: number;
+        };
+        /** LLMChannelUpdate */
+        LLMChannelUpdate: {
+            /** Api Key */
+            api_key?: string | null;
+            /** Base Url */
+            base_url?: string | null;
+            /** Default Model */
+            default_model?: string | null;
+            /** Enabled */
+            enabled?: boolean | null;
+            /** Name */
+            name?: string | null;
+            /** Purpose */
+            purpose?: string | null;
+            /** Timeout Ms */
+            timeout_ms?: number | null;
+            /** Weight */
+            weight?: number | null;
+        };
+        /** LLMConnectivityTestResponse */
+        LLMConnectivityTestResponse: {
+            /** Detail */
+            detail?: string | null;
+            /** Latency Ms */
+            latency_ms?: number | null;
+            /** Ok */
+            ok: boolean;
+        };
+        /** LLMRoutingGlobal */
+        LLMRoutingGlobal: {
+            /** Default Chat Channel Id */
+            default_chat_channel_id?: string | null;
+            /** Default Embedding Channel Id */
+            default_embedding_channel_id?: string | null;
         };
         /** LoginRequest */
         LoginRequest: {
@@ -969,6 +1436,48 @@ export interface components {
             /** Trusted */
             trusted: boolean;
         };
+        /** PasswordResetAcceptedResponse */
+        PasswordResetAcceptedResponse: {
+            /**
+             * Status
+             * @default accepted
+             */
+            status: string;
+        };
+        /** PasswordResetConfirmRequest */
+        PasswordResetConfirmRequest: {
+            /**
+             * Email
+             * @example user@example.com
+             */
+            email: string;
+            /**
+             * New Password
+             * @example password123
+             */
+            new_password: string;
+            /**
+             * Token
+             * @example <token>
+             */
+            token: string;
+        };
+        /** PasswordResetConfirmResponse */
+        PasswordResetConfirmResponse: {
+            /**
+             * Status
+             * @default ok
+             */
+            status: string;
+        };
+        /** PasswordResetRequest */
+        PasswordResetRequest: {
+            /**
+             * Email
+             * @example user@example.com
+             */
+            email: string;
+        };
         /** PersonaDetail */
         PersonaDetail: {
             /** Id */
@@ -1011,6 +1520,81 @@ export interface components {
             /** Version */
             version: string;
         };
+        /** PluginReviewDetailResponse */
+        PluginReviewDetailResponse: {
+            /** Code */
+            code: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Entry */
+            entry: string;
+            /** Id */
+            id: string;
+            /** Manifest */
+            manifest: unknown | null;
+            /** Manifest Json */
+            manifest_json: string;
+            /** Name */
+            name: string;
+            /** Permissions */
+            permissions: unknown | null;
+            /** Review Note */
+            review_note: string | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Sha256 */
+            sha256: string;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: string;
+        };
+        /** PluginReviewQueueItem */
+        PluginReviewQueueItem: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Id */
+            id: string;
+            /** Name */
+            name: string;
+            /** Review Note */
+            review_note: string | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Sha256 */
+            sha256: string;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Version */
+            version: string;
+        };
+        /** PluginReviewQueueResponse */
+        PluginReviewQueueResponse: {
+            /** Items */
+            items: components["schemas"]["PluginReviewQueueItem"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
         /** PluginUploadRequest */
         PluginUploadRequest: {
             /** Code */
@@ -1046,6 +1630,11 @@ export interface components {
              * @example password123
              */
             password: string;
+        };
+        /** ReviewNoteRequest */
+        ReviewNoteRequest: {
+            /** Note */
+            note?: string | null;
         };
         /** RoomCreateRequest */
         RoomCreateRequest: {
@@ -1281,6 +1870,73 @@ export interface components {
              */
             updated_at: string;
         };
+        /** UgcReviewDetailResponse */
+        UgcReviewDetailResponse: {
+            /** Asset Id */
+            asset_id: string;
+            /** Asset Type */
+            asset_type: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Manifest */
+            manifest: unknown | null;
+            /** Manifest Json */
+            manifest_json: string;
+            /** Review Note */
+            review_note: string | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Status */
+            status: string;
+            /** Storage Path */
+            storage_path: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Uploaded By User Id */
+            uploaded_by_user_id: string;
+        };
+        /** UgcReviewQueueItem */
+        UgcReviewQueueItem: {
+            /** Asset Id */
+            asset_id: string;
+            /** Asset Type */
+            asset_type: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Review Note */
+            review_note: string | null;
+            /** Reviewed At */
+            reviewed_at: string | null;
+            /** Reviewed By */
+            reviewed_by: string | null;
+            /** Status */
+            status: string;
+            /**
+             * Updated At
+             * Format: date-time
+             */
+            updated_at: string;
+            /** Uploaded By User Id */
+            uploaded_by_user_id: string;
+        };
+        /** UgcReviewQueueResponse */
+        UgcReviewQueueResponse: {
+            /** Items */
+            items: components["schemas"]["UgcReviewQueueItem"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -1323,6 +1979,44 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminTokenResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_audit_logs_list: {
+        parameters: {
+            query?: {
+                actor?: string | null;
+                action?: string | null;
+                target_type?: string | null;
+                target_id?: string | null;
+                since?: string | null;
+                until?: string | null;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditLogListResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1540,6 +2234,254 @@ export interface operations {
             };
         };
     };
+    admin_llm_channels_list: {
+        parameters: {
+            query?: {
+                purpose?: string | null;
+                enabled?: boolean | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMChannelListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_channels_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMChannelCreate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMChannelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_channels_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMChannelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_channels_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_channels_update: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMChannelUpdate"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMChannelOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_channels_test: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                channel_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMConnectivityTestResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_llm_routing_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRoutingGlobal"];
+                };
+            };
+        };
+    };
+    admin_llm_routing_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LLMRoutingGlobal"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LLMRoutingGlobal"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     admin_metrics_summary: {
         parameters: {
             query?: never;
@@ -1562,12 +2504,43 @@ export interface operations {
             };
         };
     };
-    admin_review_plugin_approve: {
+    admin_review_plugins_queue_list: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginReviewQueueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_plugins_queue_detail: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Admin-Secret"?: string | null;
-            };
+            header?: never;
             path: {
                 plugin_id: string;
                 version: string;
@@ -1582,7 +2555,79 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["PluginReviewDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_plugin_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"] | null;
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": components["schemas"]["AdminPluginReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_plugins_queue_note: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plugin_id: string;
+                version: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PluginReviewDetailResponse"];
                 };
             };
             /** @description Validation Error */
@@ -1599,16 +2644,18 @@ export interface operations {
     admin_review_plugin_reject: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Admin-Secret"?: string | null;
-            };
+            header?: never;
             path: {
                 plugin_id: string;
                 version: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1630,18 +2677,84 @@ export interface operations {
             };
         };
     };
-    admin_review_ugc_approve: {
+    admin_review_ugc_queue_list: {
+        parameters: {
+            query?: {
+                status?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UgcReviewQueueResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_ugc_queue_detail: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Admin-Secret"?: string | null;
-            };
+            header?: never;
             path: {
                 asset_id: string;
             };
             cookie?: never;
         };
         requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UgcReviewDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_ugc_approve: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1663,18 +2776,55 @@ export interface operations {
             };
         };
     };
-    admin_review_ugc_reject: {
+    admin_review_ugc_queue_note: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Admin-Secret"?: string | null;
-            };
+            header?: never;
             path: {
                 asset_id: string;
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UgcReviewDetailResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_review_ugc_reject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReviewNoteRequest"] | null;
+            };
+        };
         responses: {
             /** @description Successful Response */
             200: {
@@ -1763,6 +2913,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MeResponse"];
+                };
+            };
+        };
+    };
+    auth_password_reset_confirm: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetConfirmRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetConfirmResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    auth_password_reset_request: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PasswordResetRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PasswordResetAcceptedResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -1952,6 +3168,72 @@ export interface operations {
             };
         };
     };
+    gallery_item_cancel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                gallery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["GalleryCancelResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gallery_item_download: {
+        parameters: {
+            query: {
+                /** @description thumb|image */
+                kind: string;
+            };
+            header?: never;
+            path: {
+                gallery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description PNG image bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "image/png": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     health_api_v1_health_get: {
         parameters: {
             query?: never;
@@ -1967,9 +3249,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: string;
-                    };
+                    "application/json": components["schemas"]["HealthResponse"];
                 };
             };
         };
@@ -2056,6 +3336,68 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["KnowledgeMaterialOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    knowledge_materials_delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                material_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeMaterialDeleteResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    knowledge_materials_reindex: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                material_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KnowledgeMaterialReindexResponse"];
                 };
             };
             /** @description Validation Error */
@@ -2275,9 +3617,7 @@ export interface operations {
     plugins_upload_admin: {
         parameters: {
             query?: never;
-            header?: {
-                "X-Admin-Secret"?: string | null;
-            };
+            header?: never;
             path?: never;
             cookie?: never;
         };
@@ -2631,6 +3971,7 @@ export interface operations {
         parameters: {
             query: {
                 cursor?: string | null;
+                event_type?: string | null;
                 limit?: number;
                 save_id: string;
             };
