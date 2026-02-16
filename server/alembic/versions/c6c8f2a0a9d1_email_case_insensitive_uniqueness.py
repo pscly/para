@@ -36,8 +36,7 @@ def _assert_no_lower_email_conflicts(conn: sa.Connection, table: str) -> None:
 
     examples = ", ".join(f"{r[0]}(x{r[1]})" for r in rows)
     raise RuntimeError(
-        f"Cannot enforce case-insensitive email uniqueness for {table}: "
-        f"found duplicates when lower(email) is applied: {examples}"
+        f"Cannot enforce case-insensitive email uniqueness for {table}: found duplicates when lower(email) is applied: {examples}"
     )
 
 
@@ -47,8 +46,10 @@ def upgrade() -> None:
     _assert_no_lower_email_conflicts(conn, "users")
     _assert_no_lower_email_conflicts(conn, "admin_users")
 
-    conn.execute(sa.text("UPDATE users SET email = lower(email) WHERE email <> lower(email)"))
-    conn.execute(sa.text("UPDATE admin_users SET email = lower(email) WHERE email <> lower(email)"))
+    _ = conn.execute(sa.text("UPDATE users SET email = lower(email) WHERE email <> lower(email)"))
+    _ = conn.execute(
+        sa.text("UPDATE admin_users SET email = lower(email) WHERE email <> lower(email)")
+    )
 
     op.drop_index("ix_users_email", table_name="users")
     op.create_index("ix_users_email", "users", ["email"], unique=False)

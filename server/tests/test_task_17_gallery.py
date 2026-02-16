@@ -101,7 +101,7 @@ def test_task_17_gallery_generate_complete_list_writes_files() -> None:
             headers=headers,
         )
         assert dl_thumb.status_code == 200, dl_thumb.text
-        assert dl_thumb.headers.get("content-type", "").startswith("image/png")
+        assert cast(str, dl_thumb.headers.get("content-type", "")).startswith("image/png")
         assert dl_thumb.content == thumb_path.read_bytes()
 
         dl_image = client.get(
@@ -109,5 +109,5 @@ def test_task_17_gallery_generate_complete_list_writes_files() -> None:
             headers=headers,
         )
         assert dl_image.status_code == 200, dl_image.text
-        assert dl_image.headers.get("content-type", "").startswith("image/png")
+        assert cast(str, dl_image.headers.get("content-type", "")).startswith("image/png")
         assert dl_image.content == image_path.read_bytes()
