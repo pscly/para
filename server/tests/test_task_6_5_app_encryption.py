@@ -123,7 +123,7 @@ def _decrypt_resp(
     ct = _b64url_decode(ct_raw)
     aad = _aad_resp(kid=expected_kid, ts=ts, rid=expected_rid, status=status)
     plain = AESGCM(key).decrypt(nonce, ct, aad)
-    decoded_obj: object = json.loads(plain)
+    decoded_obj: object = cast(object, json.loads(plain))
     assert isinstance(decoded_obj, dict)
     return cast(dict[str, object], decoded_obj)
 
