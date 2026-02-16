@@ -1,12 +1,12 @@
 task-18 timeline evidence
-save_id=2f99de3a-b35d-42d1-83a5-b7f935084e95
+save_id=b9460b5d-8f74-4f2e-b98c-4b0707cf3af8
 simulate_status=200
-simulate_body={'task_id': 'a10a1d9f-1f7d-4c42-8fc5-efbfa3056ee8', 'timeline_event_id': '2678de7a-f7ca-4778-8048-74bef7a5581d'}
+simulate_body={'task_id': '8ef852e7-f13e-423b-bfef-71191ed976ad', 'timeline_event_id': '6fe93023-d7b5-42f3-9773-239f803313e4'}
 list_status=200
-list_body={'items': [{'id': '2678de7a-f7ca-4778-8048-74bef7a5581d', 'save_id': '2f99de3a-b35d-42d1-83a5-b7f935084e95', 'event_type': 'WALKED', 'content': 'I walked for 10 minutes', 'created_at': '2026-02-16T08:59:13.398662Z'}], 'next_cursor': ''}
+list_body={'items': [{'id': '6fe93023-d7b5-42f3-9773-239f803313e4', 'save_id': 'b9460b5d-8f74-4f2e-b98c-4b0707cf3af8', 'event_type': 'WALKED', 'content': 'I walked for 10 minutes', 'created_at': '2026-02-16T10:14:30.210632Z'}], 'next_cursor': ''}
 ws_frame_type=TIMELINE_EVENT
 ws_frame_seq=1
-ws_frame_server_event_id=0ccb4a23-0f4f-4375-b99a-7ed364cf7c2c:2f99de3a-b35d-42d1-83a5-b7f935084e95:1
-ws_frame_payload={'event': 'TIMELINE_EVENT_CREATED', 'timeline_event': {'id': '2678de7a-f7ca-4778-8048-74bef7a5581d', 'content': 'I walked for 10 minutes', 'save_id': '2f99de3a-b35d-42d1-83a5-b7f935084e95', 'user_id': '0ccb4a23-0f4f-4375-b99a-7ed364cf7c2c', 'created_at': '2026-02-16T08:59:13.398662Z', 'event_type': 'WALKED'}}
+ws_frame_server_event_id=aadc1366-49bb-4b0a-a331-38b4cf39727b:b9460b5d-8f74-4f2e-b98c-4b0707cf3af8:1
+ws_frame_payload={'event': 'TIMELINE_EVENT_CREATED', 'timeline_event': {'id': '6fe93023-d7b5-42f3-9773-239f803313e4', 'content': 'I walked for 10 minutes', 'save_id': 'b9460b5d-8f74-4f2e-b98c-4b0707cf3af8', 'user_id': 'aadc1366-49bb-4b0a-a331-38b4cf39727b', 'created_at': '2026-02-16T10:14:30.210632Z', 'event_type': 'WALKED'}}
 assert_db_list_contains_content=True
 assert_ws_replay_received=True
