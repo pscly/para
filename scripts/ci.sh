@@ -34,6 +34,11 @@ do_contract_check() {
   ./scripts/generate-contracts.sh --check
 }
 
+do_scan_blockers() {
+  cd "$repo_root"
+  ./scripts/scan_blockers.sh
+}
+
 do_server_tests() {
   cd "$repo_root"
   (cd server && uv run pytest)
@@ -49,9 +54,10 @@ run_all() {
   printf 'Repo root: %s\n' "$repo_root"
   printf 'Evidence: %s\n' "$evidence_file"
 
-  run_step "契约漂移检查（OpenAPI + TS 生成物）" "./scripts/generate-contracts.sh --check" do_contract_check
-  run_step "Server 测试（pytest）" "(cd server && uv run pytest)" do_server_tests
-  run_step "Client 单测" "npm -C client test" do_client_tests
+  run_step "发布阻断扫描（占位符/泄露）" "./scripts/scan_blockers.sh" do_scan_blockers || return 1
+  run_step "契约漂移检查（OpenAPI + TS 生成物）" "./scripts/generate-contracts.sh --check" do_contract_check || return 1
+  run_step "Server 测试（pytest）" "(cd server && uv run pytest)" do_server_tests || return 1
+  run_step "Client 单测" "npm -C client test" do_client_tests || return 1
 
   step_marker "TASK" "ALL GREEN"
 }

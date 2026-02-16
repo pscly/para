@@ -33,6 +33,33 @@ cd "$repo_root"
 
 mkdir -p contracts
 
+resolve_tag_version() {
+  local raw=""
+  if [[ -n "${GITHUB_REF_NAME:-}" ]]; then
+    raw="${GITHUB_REF_NAME}"
+  elif [[ -n "${CI_COMMIT_TAG:-}" ]]; then
+    raw="${CI_COMMIT_TAG}"
+  elif [[ -n "${GITHUB_REF:-}" ]]; then
+    raw="${GITHUB_REF}"
+  fi
+
+  if [[ -z "$raw" ]]; then
+    return 0
+  fi
+
+  raw="${raw#refs/tags/}"
+  if [[ "$raw" =~ ^v0\.[0-9]+\.[0-9]+$ ]]; then
+    printf '%s' "${raw#v}"
+  fi
+}
+
+if [[ -z "${PARA_VERSION:-}" ]]; then
+  tag_v="$(resolve_tag_version)"
+  if [[ -n "$tag_v" ]]; then
+    export PARA_VERSION="$tag_v"
+  fi
+fi
+
 if [[ $check -eq 1 ]]; then
   before_status="$(git status --porcelain -- contracts/openapi.json client/src/gen)"
 
