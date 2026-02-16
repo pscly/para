@@ -1,0 +1,5 @@
+case=open:javascript	opened=false	newWindows=0	windowCount=2	externalCallsDelta=0	hrefSame=true
+case=open:file	opened=false	newWindows=0	windowCount=2	externalCallsDelta=0	hrefSame=true
+case=open:https-not-allowlisted	opened=false	newWindows=0	windowCount=2	externalCallsDelta=0	hrefSame=true
+case=navigate:navigate-file	opened=false	newWindows=0	windowCount=2	externalCallsDelta=0	hrefSame=true
+case=navigate:navigate-https-not-allowlisted	opened=false	newWindows=0	windowCount=2	externalCallsDelta=0	hrefSame=true

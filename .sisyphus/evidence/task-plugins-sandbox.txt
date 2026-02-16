@@ -1,0 +1,35 @@
+Task Evidence: plugins sandbox (B route, QuickJS/WASM)
+Date: 2026-02-16
+
+Goal
+- Replace plugin execution boundary from Node `vm` to a real sandbox runtime.
+- Ensure plugin code cannot access Node APIs (process/require/fs/etc).
+- Keep existing plugin API behavior (say/suggestion/addMenuItem/onMenuClick) and timeouts.
+
+Implementation
+- Plugin host process still runs via `child_process.fork`.
+- Untrusted plugin code is executed inside QuickJS (WASM) runtime, not Node `vm`.
+- Runtime limits:
+  - memoryLimitBytes: 67108864 (64 MiB)
+  - maxStackSize: 524288 (512 KiB)
+- Interrupt/timeouts are enforced via QuickJS interrupt handler:
+  - init eval timeout: 1000ms
+  - menu click timeout: 400ms
+
+Security assertions
+- Plugin code does not get Node globals by default.
+- In Electron e2e, plugin code observes:
+  - typeof process === 'undefined'
+  - typeof require === 'undefined'
+  - require('fs') fails and is caught (reported as requireFs=no)
+
+Verification (all green)
+- npm -C client run lint
+- npm -C client test
+- npm -C client run e2e -- electron-plugin.spec.ts
+  - Asserts bubble text contains: process=undefined, require=undefined, requireFs=no
+- npm -C client run e2e -- electron-update-rollback.spec.ts
+- ./scripts/ci.sh
+
+Notes
+- Plugin output/menu item limits and kill-switch behavior are unchanged (enforced in main process).

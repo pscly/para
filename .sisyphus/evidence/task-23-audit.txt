@@ -6,14 +6,14 @@ Operations:
 - retention: purge_old_audit_logs(retention_days=1)
 
 Audit logs (latest 8):
-- action=feature_flags.update target=feature_flags:global created_at=2026-02-14T16:23:07.849437 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
-- action=feature_flags.update target=feature_flags:global created_at=2026-02-14T16:23:07.817800 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
-- action=vision.screenshot target=save:e4b626c9-b567-4b25-a7b2-ba0eb0b71a58 created_at=2026-02-14T16:23:07.610814 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
-- action=plugin.approve target=plugin_package:d159827a-e3f9-4941-a3e5-a5eecd4dbcf6 created_at=2026-02-14T16:23:06.082410 meta_keys=['from', 'to']
-- action=ugc_asset.approve target=ugc_asset:4cdc6758-22f8-4649-8ba9-2367a13a49eb created_at=2026-02-14T16:23:05.829891 meta_keys=['from', 'to']
-- action=feature_flags.update target=feature_flags:global created_at=2026-02-14T15:23:10.691045 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
-- action=feature_flags.update target=feature_flags:global created_at=2026-02-14T15:23:10.657397 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
-- action=vision.screenshot target=save:a4e28edf-0d8b-494d-a462-6a8ec2e998eb created_at=2026-02-14T15:23:10.442866 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
+- action=feature_flags.update target=feature_flags:global created_at=2026-02-16T08:42:10.166181 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
+- action=feature_flags.update target=feature_flags:global created_at=2026-02-16T08:42:10.140845 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
+- action=vision.screenshot target=save:5f126401-077e-495e-837b-861aabe810a1 created_at=2026-02-16T08:42:09.932736 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
+- action=feature_flags.update target=feature_flags:global created_at=2026-02-16T08:42:09.002932 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
+- action=plugin.approve target=plugin_package:78fc2ef9-f40d-45da-8353-16b2cf7f0203 created_at=2026-02-16T08:42:08.430101 meta_keys=['from', 'to']
+- action=plugin.upload target=plugin_package:78fc2ef9-f40d-45da-8353-16b2cf7f0203 created_at=2026-02-16T08:42:08.384471 meta_keys=['plugin_id', 'sha256', 'version']
+- action=ugc_asset.approve target=ugc_asset:5fbbf3b0-1668-4e17-bb2f-74c06fa9af72 created_at=2026-02-16T08:42:07.528610 meta_keys=['from', 'to']
+- action=vision.screenshot target=save:9e3b98f4-1aaf-41be-9764-0a48cb81f9ad created_at=2026-02-16T08:42:01.941862 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
 
 Redaction sample:
 - input contains: Authorization: Bearer ... + image_base64=... + data:image/...;base64,... + access_token/refresh_token

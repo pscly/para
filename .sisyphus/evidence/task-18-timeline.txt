@@ -1,12 +1,12 @@
 task-18 timeline evidence
-save_id=0f28587e-56df-48bf-8d29-555dd620932f
+save_id=a929823a-8553-4471-8b51-6d1572feddb6
 simulate_status=200
-simulate_body={'task_id': '1d39b019-2ce2-40ca-b6ca-e5568bd31b1d', 'timeline_event_id': '17f12c2f-f9fc-4ee0-892d-f3034d029586'}
+simulate_body={'task_id': '9a78dd53-de36-4486-8b35-1a5380a930ce', 'timeline_event_id': '652315ee-5c04-42a8-a5f2-58ce15ec7662'}
 list_status=200
-list_body={'items': [{'id': '17f12c2f-f9fc-4ee0-892d-f3034d029586', 'save_id': '0f28587e-56df-48bf-8d29-555dd620932f', 'event_type': 'WALKED', 'content': 'I walked for 10 minutes', 'created_at': '2026-02-14T16:18:07.515571Z'}], 'next_cursor': '1'}
+list_body={'items': [{'id': '652315ee-5c04-42a8-a5f2-58ce15ec7662', 'save_id': 'a929823a-8553-4471-8b51-6d1572feddb6', 'event_type': 'WALKED', 'content': 'I walked for 10 minutes', 'created_at': '2026-02-16T08:42:03.505701Z'}], 'next_cursor': ''}
 ws_frame_type=TIMELINE_EVENT
 ws_frame_seq=1
-ws_frame_server_event_id=0ac0b1ab-5588-4586-a766-880c4742aa46:0f28587e-56df-48bf-8d29-555dd620932f:1
-ws_frame_payload={'event': 'TIMELINE_EVENT_CREATED', 'timeline_event': {'id': '17f12c2f-f9fc-4ee0-892d-f3034d029586', 'user_id': '0ac0b1ab-5588-4586-a766-880c4742aa46', 'save_id': '0f28587e-56df-48bf-8d29-555dd620932f', 'event_type': 'WALKED', 'content': 'I walked for 10 minutes', 'created_at': '2026-02-14T16:18:07.515571Z'}}
+ws_frame_server_event_id=8d046eed-0ace-49c5-9c0e-7c85021c2423:a929823a-8553-4471-8b51-6d1572feddb6:1
+ws_frame_payload={'event': 'TIMELINE_EVENT_CREATED', 'timeline_event': {'id': '652315ee-5c04-42a8-a5f2-58ce15ec7662', 'content': 'I walked for 10 minutes', 'save_id': 'a929823a-8553-4471-8b51-6d1572feddb6', 'user_id': '8d046eed-0ace-49c5-9c0e-7c85021c2423', 'created_at': '2026-02-16T08:42:03.505701Z', 'event_type': 'WALKED'}}
 assert_db_list_contains_content=True
 assert_ws_replay_received=True
