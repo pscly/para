@@ -324,6 +324,8 @@ async def ws_v1(websocket: WebSocket) -> None:
         except Exception as e:
             error = str(e)
         finally:
+            # 先将 DONE 事件落库（用于 resume/replay），但延后发送给客户端：
+            # 这样当客户端观察到 CHAT_DONE 时，usage 行已可被查询到（避免 CI/慢机器抖动）。
             done_event = await asyncio.to_thread(
                 _append_typed_event_db,
                 user_id=user_id,
@@ -336,12 +338,6 @@ async def ws_v1(websocket: WebSocket) -> None:
                 },
                 ack_required=True,
             )
-            try:
-                await _safe_send_json(done_event)
-            except WebSocketDisconnect:
-                pass
-            except RuntimeError:
-                pass
 
             ended_at = _utcnow_naive()
             latency_ms = max(0, int((time.monotonic() - start_mono) * 1000))
@@ -398,8 +394,17 @@ async def ws_v1(websocket: WebSocket) -> None:
                             pass
 
             try:
+                # 这里必须在发送 CHAT_DONE 之前完成 commit，避免连接关闭触发的任务取消
+                # 让 usage 行“偶发不可见/未落库”。
                 await asyncio.to_thread(_persist_usage_row)
             except Exception:
+                pass
+
+            try:
+                await _safe_send_json(done_event)
+            except WebSocketDisconnect:
+                pass
+            except RuntimeError:
                 pass
 
     async def _interrupt_active_stream() -> None:
