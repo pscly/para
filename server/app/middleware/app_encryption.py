@@ -129,14 +129,14 @@ class AppEncryptionMiddleware:
 
         chunks: list[bytes] = []
         while True:
-            msg = await receive()
+            msg: Message = await receive()
             if msg.get("type") != "http.request":
                 continue
-            body_raw = msg.get("body", b"")
+            body_raw = cast(object, msg.get("body", b""))
             body_part = bytes(body_raw) if isinstance(body_raw, (bytes, bytearray)) else b""
             if body_part:
                 chunks.append(body_part)
-            more_body_raw = msg.get("more_body", False)
+            more_body_raw = cast(object, msg.get("more_body", False))
             more_body = more_body_raw is True
             if not more_body:
                 break
@@ -149,7 +149,7 @@ class AppEncryptionMiddleware:
             return
 
         try:
-            env_obj: object = json.loads(raw_body)
+            env_obj: object = cast(object, json.loads(raw_body))
         except Exception:
             for msg in _json_response_messages(
                 status=400, obj={"detail": "PARA_APPENC_BAD_ENVELOPE"}
@@ -300,11 +300,11 @@ class AppEncryptionMiddleware:
                 passthrough = True
                 return
 
-            body_raw = message.get("body", b"")
+            body_raw = cast(object, message.get("body", b""))
             body_part = bytes(body_raw) if isinstance(body_raw, (bytes, bytearray)) else b""
             if body_part:
                 body_chunks.append(body_part)
-            more_body_raw = message.get("more_body", False)
+            more_body_raw = cast(object, message.get("more_body", False))
             if more_body_raw is True:
                 saw_more_body = True
 

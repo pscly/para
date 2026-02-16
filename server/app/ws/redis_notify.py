@@ -57,9 +57,10 @@ def decode_ws_v1_append_notify(data: object) -> WsV1AppendNotify | None:
 
     if not isinstance(obj, dict):
         return None
-    user_id = obj.get("user_id")
-    save_id = obj.get("save_id")
-    seq = obj.get("seq")
+    obj_dict = cast(dict[str, object], obj)
+    user_id = obj_dict.get("user_id")
+    save_id = obj_dict.get("save_id")
+    seq = obj_dict.get("seq")
     if not isinstance(user_id, str) or user_id == "":
         return None
     if not isinstance(save_id, str) or save_id == "":
@@ -75,7 +76,7 @@ _sync_client: redis.Redis | None = None
 def get_sync_redis() -> redis.Redis:
     global _sync_client
     if _sync_client is None:
-        _sync_client = redis.Redis.from_url(
+        _sync_client = redis.Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
             _redis_url(),
             decode_responses=True,
             socket_connect_timeout=1.0,
@@ -87,7 +88,7 @@ def get_sync_redis() -> redis.Redis:
 
 def get_async_redis() -> redis_async.Redis:
     # 不做全局 singleton：async client/pool 的生命周期更难控，按连接创建更直观。
-    return redis_async.Redis.from_url(
+    return redis_async.Redis.from_url(  # pyright: ignore[reportUnknownMemberType]
         _redis_url(),
         decode_responses=True,
         socket_connect_timeout=1.0,
@@ -101,7 +102,7 @@ def publish_ws_v1_append_notify(*, user_id: str, save_id: str, seq: int) -> None
     payload = encode_ws_v1_append_notify(user_id=user_id, save_id=save_id, seq=seq)
     r = get_sync_redis()
     # 返回值是订阅者数量；目前不依赖。
-    _ = r.publish(channel, payload)
+    _ = r.publish(channel, payload)  # pyright: ignore[reportUnknownMemberType]
 
 
 async def subscribe_ws_v1_stream(
@@ -109,7 +110,7 @@ async def subscribe_ws_v1_stream(
 ) -> tuple[redis_async.Redis, _AsyncPubSub, str]:
     r = get_async_redis()
     channel = ws_v1_stream_channel(user_id=user_id, save_id=save_id)
-    pubsub_raw = r.pubsub(ignore_subscribe_messages=True)
+    pubsub_raw = r.pubsub(ignore_subscribe_messages=True)  # pyright: ignore[reportUnknownMemberType]
     pubsub = cast(_AsyncPubSub, cast(object, pubsub_raw))
     _ = await pubsub.subscribe(channel)
     return r, pubsub, channel
