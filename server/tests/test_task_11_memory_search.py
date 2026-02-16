@@ -80,6 +80,9 @@ def test_task_11_memory_ingest_search_delete_writes_evidence() -> None:
         search_body = cast(list[dict[str, object]], search_resp.json())
         assert len(search_body) >= 1
         assert cast(str, search_body[0]["id"]) == memory_id
+        assert len(search_body) <= 5
+        dists = [float(cast(float, it["distance"])) for it in search_body]
+        assert dists == sorted(dists)
 
         del_resp = client.delete(
             f"/api/v1/memory/{memory_id}",
@@ -98,6 +101,8 @@ def test_task_11_memory_ingest_search_delete_writes_evidence() -> None:
         assert search2_resp.status_code == 200, search2_resp.text
         search2_body = cast(list[dict[str, object]], search2_resp.json())
         assert all(cast(str, it["id"]) != memory_id for it in search2_body)
+        dists2 = [float(cast(float, it["distance"])) for it in search2_body]
+        assert dists2 == sorted(dists2)
 
         repo_root = Path(__file__).resolve().parents[2]
         evidence_path = repo_root / ".sisyphus" / "evidence" / "task-11-memory-search.json"

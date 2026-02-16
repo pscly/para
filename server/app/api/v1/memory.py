@@ -156,6 +156,7 @@ async def memory_ingest(
     db.add(
         MemoryEmbedding(
             memory_id=item.id,
+            save_id=item.save_id,
             embedding_model=_emb_model(emb),
             embedding_dim=dim,
             embedding=cast(list[float], getattr(emb, "embedding")),
@@ -195,15 +196,22 @@ async def memory_search(
     query_lit = literal(cast(list[float], getattr(emb, "embedding")), type_=Vector(EMBED_DIM))
     distance_expr = MemoryEmbedding.embedding.op("<->")(query_lit).cast(Float)
 
-    stmt = (
-        select(MemoryItem, distance_expr.label("distance"))
-        .join(MemoryEmbedding, MemoryEmbedding.memory_id == MemoryItem.id)
-        .where(
-            MemoryItem.save_id == save_id,
-            MemoryItem.deleted_at.is_(None),
+    candidates = (
+        select(
+            MemoryEmbedding.memory_id.label("memory_id"),
+            distance_expr.label("distance"),
         )
+        .where(MemoryEmbedding.save_id == save_id)
         .order_by(distance_expr.asc())
         .limit(limit)
+        .cte("candidates")
+    )
+
+    stmt = (
+        select(MemoryItem, candidates.c.distance)
+        .join(candidates, candidates.c.memory_id == MemoryItem.id)
+        .where(MemoryItem.deleted_at.is_(None))
+        .order_by(candidates.c.distance.asc())
     )
     try:
         rows = cast(list[tuple[MemoryItem, float]], db.execute(stmt).tuples().all())
@@ -246,6 +254,10 @@ async def memory_delete(
 
     now = datetime.utcnow()
     item.deleted_at = now
+
+    emb_row = db.get(MemoryEmbedding, memory_id)
+    if emb_row is not None:
+        db.delete(emb_row)
     db.commit()
     db.refresh(item)
     return MemoryDeleteResponse(id=item.id, deleted_at=cast(datetime, item.deleted_at))

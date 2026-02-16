@@ -26,11 +26,34 @@ def _ensure_test_schema() -> None:
         "ALTER TABLE plugin_packages ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP NULL",
         "ALTER TABLE plugin_packages ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(36) NULL",
         "ALTER TABLE plugin_packages ADD COLUMN IF NOT EXISTS review_note TEXT NULL",
+        "ALTER TABLE memory_embeddings ADD COLUMN IF NOT EXISTS save_id VARCHAR(36) NULL",
     ]
 
     with engine.connect() as conn:
         for stmt in alter_sql:
             _ = conn.execute(text(stmt))
+
+        # 与生产迁移保持一致：回填 save_id，并删除已 soft delete 的 memory_items 对应 embedding。
+        _ = conn.execute(
+            text(
+                """
+                UPDATE memory_embeddings AS me
+                SET save_id = mi.save_id
+                FROM memory_items AS mi
+                WHERE mi.id = me.memory_id AND me.save_id IS NULL
+                """
+            )
+        )
+        _ = conn.execute(
+            text(
+                """
+                DELETE FROM memory_embeddings AS me
+                USING memory_items AS mi
+                WHERE mi.id = me.memory_id AND mi.deleted_at IS NOT NULL
+                """
+            )
+        )
+        _ = conn.execute(text("ALTER TABLE memory_embeddings ALTER COLUMN save_id SET NOT NULL"))
         conn.commit()
 
 
