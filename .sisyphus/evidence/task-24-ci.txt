@@ -16,7 +16,7 @@ scan_blockers: OK
 > node -e "require('fs').mkdirSync('src/gen',{recursive:true})" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts
 
 ✨ openapi-typescript 7.13.0
-🚀 ../contracts/openapi.json → src/gen/openapi.ts [209.9ms]
+🚀 ../contracts/openapi.json → src/gen/openapi.ts [212.1ms]
 
 ========== [STEP OK] 契约漂移检查（OpenAPI + TS 生成物） ==========
 
@@ -269,14 +269,13 @@ tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
   /root/1codes/1para/server/app/api/v1/feature_flags.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow().replace(microsecond=0)
 
-tests/test_task_2_1_ws_eventstore.py: 2 warnings
+tests/test_task_2_1_ws_eventstore.py: 3 warnings
 tests/test_task_2_2_ws_redis_notify.py: 1 warning
 tests/test_task_4_2_llm_usage_metrics.py: 1 warning
 tests/test_task_9_save_isolation.py: 4 warnings
 tests/test_ws_v1_chat_stream.py: 2 warnings
 tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
-tests/test_ws_v1_resume.py: 1 warning
-  /root/1codes/1para/server/app/ws/redis_notify.py:126: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+  /root/1codes/1para/server/app/ws/redis_notify.py:127: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
     _ = await pubsub.close()
 
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_login_rate_limit_lockout_expiry_and_success_resets
@@ -308,6 +307,13 @@ tests/test_task_3_4_upload_limits.py::test_task_3_4_ugc_upload_too_large_returns
 tests/test_task_3_4_upload_limits.py::test_task_3_4_plugins_upload_payload_too_large_returns_413
   /root/1codes/1para/server/.venv/lib/python3.12/site-packages/fastapi/routing.py:312: DeprecationWarning: 'HTTP_413_REQUEST_ENTITY_TOO_LARGE' is deprecated. Use 'HTTP_413_CONTENT_TOO_LARGE' instead.
     return await dependant.call(**values)
+
+tests/test_task_4_2_llm_usage_metrics.py::test_task_4_2_ws_chat_persists_llm_usage_row_and_metrics_exposed
+tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writes_evidence
+tests/test_ws_v1_openai_streaming_stub.py::test_ws_v1_openai_streaming_stub_emits_tokens_then_done[responses]
+tests/test_ws_v1_openai_streaming_stub.py::test_ws_v1_openai_streaming_stub_emits_tokens_then_done[chat_completions]
+  /root/1codes/1para/server/app/ws/redis_notify.py:132: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
+    await r.close()  # type: ignore[func-returns-value]
 
 tests/test_task_4_2_llm_usage_metrics.py::test_task_4_2_admin_metrics_summary_includes_llm_usage_fields
   /root/1codes/1para/server/app/api/v1/admin_metrics.py:31: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
@@ -343,12 +349,8 @@ tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writ
   /root/1codes/1para/server/app/api/v1/saves.py:187: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
-tests/test_ws_v1_openai_streaming_stub.py::test_ws_v1_openai_streaming_stub_emits_tokens_then_done[chat_completions]
-  /root/1codes/1para/server/app/ws/redis_notify.py:131: DeprecationWarning: Call to deprecated close. (Use aclose() instead) -- Deprecated since version 5.0.1.
-    await r.close()  # type: ignore[func-returns-value]
-
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-====================== 73 passed, 563 warnings in 34.95s =======================
+====================== 73 passed, 566 warnings in 34.87s =======================
 
 ========== [STEP OK] Server 测试（pytest） ==========
 
@@ -362,13 +364,13 @@ tests/test_ws_v1_openai_streaming_stub.py::test_ws_v1_openai_streaming_stub_emit
 
 [1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90m/root/1codes/1para/client[39m
 
- [32m✓[39m tests/app.smoke.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 142[2mms[22m[39m
- [32m✓[39m tests/plugins-consent.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 197[2mms[22m[39m
+ [32m✓[39m tests/app.smoke.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 160[2mms[22m[39m
+ [32m✓[39m tests/plugins-consent.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 206[2mms[22m[39m
 
 [2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
 [2m      Tests [22m [1m[32m2 passed[39m[22m[90m (2)[39m
-[2m   Start at [22m 16:42:33
-[2m   Duration [22m 1.35s[2m (transform 189ms, setup 162ms, collect 449ms, tests 339ms, environment 1.02s, prepare 184ms)[22m
+[2m   Start at [22m 16:59:43
+[2m   Duration [22m 1.34s[2m (transform 204ms, setup 153ms, collect 492ms, tests 366ms, environment 947ms, prepare 191ms)[22m
 
 
 ========== [STEP OK] Client 单测 ==========
