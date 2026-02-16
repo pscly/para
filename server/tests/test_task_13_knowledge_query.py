@@ -95,6 +95,8 @@ def test_task_13_knowledge_upload_index_query_writes_evidence() -> None:
         assert any(
             "PARA_KNOWLEDGE_MAGIC_SENTENCE" in cast(str, it.get("snippet", "")) for it in citations
         )
+        dists = [float(cast(float, it["distance"])) for it in citations]
+        assert dists == sorted(dists)
 
         repo_root = Path(__file__).resolve().parents[2]
         evidence_path = repo_root / ".sisyphus" / "evidence" / "task-13-knowledge-query.json"

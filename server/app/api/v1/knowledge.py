@@ -409,13 +409,21 @@ async def knowledge_query(
     query_lit = literal(emb.embedding, type_=Vector(int(emb.embedding_dim)))
     distance_expr = KnowledgeChunk.embedding.op("<->")(query_lit).cast(Float)
 
-    stmt = (
-        select(KnowledgeChunk, distance_expr.label("distance"))
-        .join(KnowledgeMaterial, KnowledgeMaterial.id == KnowledgeChunk.material_id)
+    material_ok = (
+        select(literal(1))
         .where(
-            KnowledgeChunk.save_id == payload.save_id,
+            KnowledgeMaterial.id == KnowledgeChunk.material_id,
             KnowledgeMaterial.save_id == payload.save_id,
             KnowledgeMaterial.status == "indexed",
+        )
+        .exists()
+    )
+
+    stmt = (
+        select(KnowledgeChunk, distance_expr.label("distance"))
+        .where(
+            KnowledgeChunk.save_id == payload.save_id,
+            material_ok,
         )
         .order_by(distance_expr.asc())
         .limit(int(payload.top_k))
