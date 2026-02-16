@@ -12,3 +12,15 @@ server/.venv/
 
 # Local tool state
 /.serena/
+
+# Build/test artifacts (do not commit)
+client/build/
+client/dist-electron/
+test-results/
+client/test-results/
+client/playwright-report/
+
+# Local Sisyphus scratchpads (keep evidence tracked)
+.sisyphus/drafts/
+.sisyphus/notepads/
+.sisyphus/plans/
