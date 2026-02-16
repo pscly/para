@@ -13,8 +13,26 @@ from sqlalchemy.orm import Session
 
 from app.db.models import KnowledgeChunk, KnowledgeMaterial
 from app.db.session import engine
-from app.services.embedding_provider import embed_text
+from app.services import embedding_provider
 from app.workers.celery_app import celery_app
+
+
+def _emb_model(emb: object) -> str:
+    v = getattr(emb, "model", None)
+    if isinstance(v, str) and v.strip() != "":
+        return v
+    v2 = getattr(emb, "embedding_model", None)
+    return v2 if isinstance(v2, str) else ""
+
+
+def _emb_dim(emb: object) -> int:
+    v = getattr(emb, "dim", None)
+    if isinstance(v, (int, float)):
+        return int(v)
+    v2 = getattr(emb, "embedding_dim", None)
+    if isinstance(v2, (int, float)):
+        return int(v2)
+    raise RuntimeError("embedding result missing dim")
 
 
 def _read_text_file(path: Path) -> str:
@@ -107,15 +125,17 @@ def task_13_index_knowledge_material(material_id: str) -> dict[str, object]:
             db.commit()
 
             for idx, content in enumerate(chunks):
-                emb = embed_text(content)
+                emb = embedding_provider.embed_text(content, db=db)
+                model = _emb_model(emb)
+                dim = _emb_dim(emb)
                 db.add(
                     KnowledgeChunk(
                         material_id=material.id,
                         save_id=material.save_id,
                         chunk_index=idx,
                         content=content,
-                        embedding_model=emb.embedding_model,
-                        embedding_dim=int(emb.embedding_dim),
+                        embedding_model=model,
+                        embedding_dim=dim,
                         embedding=emb.embedding,
                         created_at=now,
                     )

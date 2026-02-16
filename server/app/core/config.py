@@ -270,11 +270,6 @@ class Settings(BaseSettings):
         provider = self.knowledge_embedding_provider.strip().lower()
         if provider not in ("local", "openai"):
             raise ValueError("KNOWLEDGE_EMBEDDING_PROVIDER must be one of: local, openai")
-        if provider == "openai":
-            if not (self.openai_base_url and self.openai_base_url.strip()):
-                raise ValueError("OPENAI_BASE_URL must be set when using OpenAI embeddings")
-            if not (self.openai_api_key and self.openai_api_key.strip()):
-                raise ValueError("OPENAI_API_KEY must be set when using OpenAI embeddings")
         return self
 
     @model_validator(mode="after")

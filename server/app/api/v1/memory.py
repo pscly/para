@@ -20,7 +20,8 @@ from app.core.config import settings
 from app.core.security import decode_access_token
 from app.db.models import MemoryEmbedding, MemoryItem, Save, Vector
 from app.db.session import get_db
-from app.services.embedding_local import EMBED_DIM, EMBED_MODEL, local_embed
+from app.services import embedding_provider
+from app.services.embedding_local import EMBED_DIM
 
 
 router = APIRouter(prefix="/memory", tags=["memory"])
@@ -102,6 +103,24 @@ def _raise_if_pgvector_unavailable(exc: Exception) -> None:
         ) from exc
 
 
+def _emb_model(emb: object) -> str:
+    v = getattr(emb, "model", None)
+    if isinstance(v, str) and v.strip() != "":
+        return v
+    v2 = getattr(emb, "embedding_model", None)
+    return v2 if isinstance(v2, str) else ""
+
+
+def _emb_dim(emb: object) -> int:
+    v = getattr(emb, "dim", None)
+    if isinstance(v, (int, float)):
+        return int(v)
+    v2 = getattr(emb, "embedding_dim", None)
+    if isinstance(v2, (int, float)):
+        return int(v2)
+    raise RuntimeError("embedding result missing dim")
+
+
 @router.post(
     "/ingest",
     response_model=MemoryIngestResponse,
@@ -127,13 +146,19 @@ async def memory_ingest(
     db.add(item)
     db.flush()
 
-    emb = local_embed(payload.content)
+    emb = embedding_provider.embed_text(payload.content, db=db)
+    dim = _emb_dim(emb)
+    if dim != EMBED_DIM:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Embedding dim mismatch: expected {EMBED_DIM}, got {dim}",
+        )
     db.add(
         MemoryEmbedding(
             memory_id=item.id,
-            embedding_model=EMBED_MODEL,
-            embedding_dim=EMBED_DIM,
-            embedding=emb,
+            embedding_model=_emb_model(emb),
+            embedding_dim=dim,
+            embedding=cast(list[float], getattr(emb, "embedding")),
             created_at=now,
         )
     )
@@ -160,8 +185,14 @@ async def memory_search(
 ) -> list[MemorySearchItem]:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=save_id)
 
-    query_vec = local_embed(q)
-    query_lit = literal(query_vec, type_=Vector(EMBED_DIM))
+    emb = embedding_provider.embed_text(q, db=db)
+    dim = _emb_dim(emb)
+    if dim != EMBED_DIM:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Embedding dim mismatch: expected {EMBED_DIM}, got {dim}",
+        )
+    query_lit = literal(cast(list[float], getattr(emb, "embedding")), type_=Vector(EMBED_DIM))
     distance_expr = MemoryEmbedding.embedding.op("<->")(query_lit).cast(Float)
 
     stmt = (

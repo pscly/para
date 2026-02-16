@@ -405,7 +405,7 @@ async def knowledge_query(
 ) -> KnowledgeQueryResponse:
     _ = _get_owned_save_or_404(db, user_id=user_id, save_id=payload.save_id)
 
-    emb = embed_text(payload.query)
+    emb = embed_text(payload.query, db=db)
     query_lit = literal(emb.embedding, type_=Vector(int(emb.embedding_dim)))
     distance_expr = KnowledgeChunk.embedding.op("<->")(query_lit).cast(Float)
 
