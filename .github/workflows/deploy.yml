@@ -48,7 +48,9 @@ jobs:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          tar -czf "release-${DEPLOY_SHA}.tgz" \
+          # Keep output outside '.' so tar doesn't include its own output file.
+          TARBALL="${RUNNER_TEMP:-/tmp}/release-${DEPLOY_SHA}.tgz"
+          tar -czf "$TARBALL" \
             --exclude=.git \
             --exclude=.env \
             --exclude=.env.* \
@@ -66,8 +68,9 @@ jobs:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
+          TARBALL="${RUNNER_TEMP:-/tmp}/release-${DEPLOY_SHA}.tgz"
           ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "mkdir -p /root/dockers/para/releases"
-          scp -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "release-${DEPLOY_SHA}.tgz" "root@pscly.cc:/root/dockers/para/releases/${DEPLOY_SHA}.tgz"
+          scp -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "$TARBALL" "root@pscly.cc:/root/dockers/para/releases/${DEPLOY_SHA}.tgz"
 
       - name: Remote deploy
         shell: bash
