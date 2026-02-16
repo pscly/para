@@ -263,3 +263,54 @@ test('Electron login: fail', async () => {
 
   await stub.close();
 });
+
+test('Electron login: enforce secure token storage (fails + no plaintext file)', async () => {
+  const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
+  expect(fs.existsSync(mainEntry)).toBeTruthy();
+
+  const stub = await startAuthStubServer({ correctPassword: 'correct-password' });
+
+  await withTempUserDataDir(async (userDataDir) => {
+    const app = await electron.launch({
+      executablePath: electronPath as unknown as string,
+      args: [mainEntry],
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        PARA_SERVER_BASE_URL: stub.baseUrl,
+        PARA_USER_DATA_DIR: userDataDir,
+        PARA_ENFORCE_SECURE_TOKEN_STORAGE: '1',
+        PARA_TEST_DISABLE_SAFE_STORAGE: '1'
+      }
+    });
+
+    try {
+      const page = await getDebugPanelPage(app);
+
+      const email = 'user@example.com';
+      await page.getByTestId(TEST_IDS.loginEmail).fill(email);
+      await page.getByTestId(TEST_IDS.loginPassword).fill('correct-password');
+      await page.getByTestId(TEST_IDS.loginSubmit).click();
+
+      const err = page.getByTestId(TEST_IDS.loginError);
+      await expect(err).toBeVisible();
+      await expect(err).toContainText('本机安全存储不可用');
+      await expect(page.getByText(`已登录：${email}`)).toHaveCount(0);
+
+      const userDataPathFromMain = await app.evaluate(({ app: electronApp }) => {
+        return electronApp.getPath('userData');
+      });
+      const tokensFileExists = fs.existsSync(path.join(userDataPathFromMain, 'auth.tokens.json'));
+      expect(tokensFileExists).toBeFalsy();
+
+      const evidencePath = getEvidencePath('task-6-4-token-storage.png');
+      await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
+      await page.screenshot({ path: evidencePath, fullPage: true });
+      expect(fs.existsSync(evidencePath)).toBeTruthy();
+    } finally {
+      await app.close();
+    }
+  });
+
+  await stub.close();
+});

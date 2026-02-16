@@ -174,6 +174,25 @@ type PluginInstallPayload = {
   version?: string;
 };
 
+type UpdateProgress = {
+  percent: number;
+  transferred: number;
+  total: number;
+  bytesPerSecond: number;
+};
+
+type UpdateState = {
+  enabled: boolean;
+  phase: string;
+  currentVersion: string;
+  availableVersion: string | null;
+  progress: UpdateProgress | null;
+  error: string | null;
+  lastCheckedAt: string | null;
+  allowDowngrade: boolean;
+  source: string;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
   versions: {
@@ -200,6 +219,9 @@ contextBridge.exposeInMainWorld('desktopApi', {
     },
     list: async (saveId: string): Promise<GalleryItem[]> => {
       return ipcRenderer.invoke('gallery:list', { saveId }) as Promise<GalleryItem[]>;
+    },
+    download: async (payload: { galleryId: string; kind: 'thumb' | 'image' }): Promise<ArrayBuffer> => {
+      return ipcRenderer.invoke('gallery:download', payload) as Promise<ArrayBuffer>;
     }
   },
   timeline: {
@@ -255,6 +277,28 @@ contextBridge.exposeInMainWorld('desktopApi', {
 
       ipcRenderer.on('plugins:output', listener);
       return () => ipcRenderer.removeListener('plugins:output', listener);
+    }
+  },
+  update: {
+    getState: async (): Promise<UpdateState> => {
+      return ipcRenderer.invoke('update:getState') as Promise<UpdateState>;
+    },
+    check: async (): Promise<UpdateState> => {
+      return ipcRenderer.invoke('update:check') as Promise<UpdateState>;
+    },
+    download: async (): Promise<UpdateState> => {
+      return ipcRenderer.invoke('update:download') as Promise<UpdateState>;
+    },
+    install: async (): Promise<UpdateState> => {
+      return ipcRenderer.invoke('update:install') as Promise<UpdateState>;
+    },
+    onState: (handler: (state: UpdateState) => void): (() => void) => {
+      const listener = (_event: Electron.IpcRendererEvent, state: UpdateState) => {
+        handler(state);
+      };
+
+      ipcRenderer.on('update:state', listener);
+      return () => ipcRenderer.removeListener('update:state', listener);
     }
   },
   auth: {

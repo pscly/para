@@ -2,7 +2,10 @@ import path from 'node:path';
 import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { fork, type ChildProcess } from 'node:child_process';
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, shell, Tray } from 'electron';
+import { fileURLToPath } from 'node:url';
+import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } from 'electron';
+import type { Event as ElectronEvent } from 'electron';
+import { createUpdateManager, type UpdateManager, type UpdateState } from './updateManager';
 
 const AUTH_TOKENS_FILENAME = 'auth.tokens.json';
 
@@ -32,6 +35,7 @@ const IPC_VISION_UPLOAD_SCREENSHOT = 'vision:uploadScreenshot';
 
 const IPC_GALLERY_GENERATE = 'gallery:generate';
 const IPC_GALLERY_LIST = 'gallery:list';
+const IPC_GALLERY_DOWNLOAD = 'gallery:download';
 
 const IPC_TIMELINE_SIMULATE = 'timeline:simulate';
 const IPC_TIMELINE_LIST = 'timeline:list';
@@ -55,14 +59,238 @@ const IPC_ASSISTANT_SET_IDLE_ENABLED = 'assistant:setIdleEnabled';
 const IPC_ASSISTANT_WRITE_CLIPBOARD_TEXT = 'assistant:writeClipboardText';
 const IPC_ASSISTANT_SUGGESTION = 'assistant:suggestion';
 
+const IPC_UPDATE_GET_STATE = 'update:getState';
+const IPC_UPDATE_CHECK = 'update:check';
+const IPC_UPDATE_DOWNLOAD = 'update:download';
+const IPC_UPDATE_INSTALL = 'update:install';
+const IPC_UPDATE_STATE = 'update:state';
+
 const IPC_WS_EVENT = 'ws:event';
 const IPC_WS_STATUS = 'ws:status';
 
 const DEFAULT_SERVER_BASE_URL = 'http://localhost:8000';
 
+const PARA_EXTERNAL_OPEN_ORIGINS_ENV = 'PARA_EXTERNAL_OPEN_ORIGINS';
+const PARA_EXTERNAL_OPEN_HOSTS_ENV = 'PARA_EXTERNAL_OPEN_HOSTS';
+
 const paraUserDataDirOverride = process.env.PARA_USER_DATA_DIR;
 if (typeof paraUserDataDirOverride === 'string' && paraUserDataDirOverride.trim() !== '') {
   app.setPath('userData', paraUserDataDirOverride);
+}
+
+function envFlagTruthy(name: string): boolean {
+  const v = process.env[name];
+  if (typeof v !== 'string') return false;
+  const s = v.trim().toLowerCase();
+  if (s === '') return false;
+  return s === '1' || s === 'true' || s === 'yes' || s === 'on';
+}
+
+function getUidOrNull(): number | null {
+  try {
+    const uid = (process as unknown as { getuid?: () => number }).getuid?.();
+    return typeof uid === 'number' ? uid : null;
+  } catch {
+    return null;
+  }
+}
+
+function shouldEnableSandbox(): boolean {
+  if (envFlagTruthy('PARA_DISABLE_SANDBOX')) return false;
+  if (envFlagTruthy('PARA_FORCE_SANDBOX')) return true;
+
+  if (process.platform === 'linux') {
+    const uid = getUidOrNull();
+    if (uid === 0) return false;
+  }
+
+  return true;
+}
+
+const SANDBOX_ENABLED = shouldEnableSandbox();
+
+if (process.env.NODE_ENV === 'test') {
+  const uid = getUidOrNull();
+  console.error(`[e2e][main] platform=${process.platform} uid=${uid ?? 'n/a'} sandbox=${SANDBOX_ENABLED}`);
+}
+
+if (!SANDBOX_ENABLED && process.platform === 'linux') {
+  app.commandLine.appendSwitch('no-sandbox');
+  app.commandLine.appendSwitch('disable-setuid-sandbox');
+
+  if (process.env.NODE_ENV === 'test') {
+    console.error('[e2e][main] chromium switches: --no-sandbox --disable-setuid-sandbox');
+  }
+}
+
+if (SANDBOX_ENABLED) {
+  app.enableSandbox();
+}
+
+function parseCommaSeparatedEnv(name: string): string[] {
+  const raw = process.env[name];
+  if (typeof raw !== 'string') return [];
+  return raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+}
+
+function tryParseUrl(raw: string): URL | null {
+  try {
+    return new URL(raw);
+  } catch {
+    return null;
+  }
+}
+
+function buildExternalOpenAllowlist(): { origins: Set<string>; hosts: Set<string> } {
+  const origins = new Set<string>();
+  const hosts = new Set<string>();
+
+  for (const item of parseCommaSeparatedEnv(PARA_EXTERNAL_OPEN_ORIGINS_ENV)) {
+    const u = tryParseUrl(item);
+    if (!u) continue;
+    if (u.protocol !== 'https:' && u.protocol !== 'http:') continue;
+    origins.add(u.origin);
+  }
+
+  for (const item of parseCommaSeparatedEnv(PARA_EXTERNAL_OPEN_HOSTS_ENV)) {
+    if (item.includes('://') || item.includes('/') || item.includes('?') || item.includes('#')) continue;
+    const u = tryParseUrl(`https://${item}`);
+    if (!u) continue;
+    if (!u.hostname) continue;
+    hosts.add(u.host);
+  }
+
+  return { origins, hosts };
+}
+
+const EXTERNAL_OPEN_ALLOWLIST = buildExternalOpenAllowlist();
+
+function isSafeForExternalOpen(rawUrl: string): boolean {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return false;
+
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  if (EXTERNAL_OPEN_ALLOWLIST.origins.has(u.origin)) return true;
+  if (EXTERNAL_OPEN_ALLOWLIST.hosts.has(u.host)) return true;
+  return false;
+}
+
+function isFileUrlInsideRendererDist(rawUrl: string, rendererDir: string): boolean {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return false;
+  if (u.protocol !== 'file:') return false;
+
+  const urlForPath = new URL(u.href);
+  urlForPath.search = '';
+  urlForPath.hash = '';
+
+  let filePath: string;
+  try {
+    filePath = fileURLToPath(urlForPath);
+  } catch {
+    return false;
+  }
+
+  const rendererRoot = path.resolve(rendererDir);
+  const target = path.resolve(filePath);
+  const rel = path.relative(rendererRoot, target);
+  if (rel === '') return true;
+  if (rel.startsWith('..')) return false;
+  if (path.isAbsolute(rel)) return false;
+  return true;
+}
+
+function isSafeForAppNavigation(rawUrl: string, devServerOrigin: string | null, rendererDir: string): boolean {
+  const u = tryParseUrl(rawUrl);
+  if (!u) return false;
+  if (u.protocol === 'file:') return isFileUrlInsideRendererDist(rawUrl, rendererDir);
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') return false;
+  if (!devServerOrigin) return false;
+  return u.origin === devServerOrigin;
+}
+
+type IpcEventLike = {
+  senderFrame?: { url?: string | undefined } | null;
+  sender: { getURL: () => string };
+};
+
+function getIpcAllowlistContext(): { devOrigin: string | null; rendererDir: string } {
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const devOrigin = typeof devUrl === 'string' && devUrl.trim() !== '' ? tryParseUrl(devUrl)?.origin ?? null : null;
+  const rendererDir = path.join(__dirname, '..', 'renderer');
+  return { devOrigin, rendererDir };
+}
+
+function isTrustedIpcSenderUrl(rawUrl: string): boolean {
+  const { devOrigin, rendererDir } = getIpcAllowlistContext();
+  return isSafeForAppNavigation(rawUrl, devOrigin, rendererDir);
+}
+
+function assertTrustedIpcSender(event: IpcEventLike): void {
+  const rawUrl = event.senderFrame?.url ?? event.sender.getURL();
+  if (!isTrustedIpcSenderUrl(rawUrl)) {
+    throw new Error('UNTRUSTED_IPC_SENDER');
+  }
+}
+
+function handleTrustedIpc(channel: string, handler: (event: any, ...args: any[]) => any): void {
+  ipcMain.handle(channel, async (event, ...args) => {
+    assertTrustedIpcSender(event as IpcEventLike);
+    return handler(event, ...args);
+  });
+}
+
+function setupDefaultDenyPermissions(): void {
+  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
+    callback(false);
+  });
+}
+
+function applyNavigationAndExternalGuards(win: BrowserWindow): void {
+  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  const devOrigin = typeof devUrl === 'string' && devUrl.trim() !== '' ? tryParseUrl(devUrl)?.origin ?? null : null;
+  const rendererDir = path.join(__dirname, '..', 'renderer');
+
+  win.webContents.on('will-navigate', (event, url) => {
+    if (!isSafeForAppNavigation(url, devOrigin, rendererDir)) {
+      event.preventDefault();
+    }
+  });
+
+  win.webContents.on('will-frame-navigate' as any, (event: ElectronEvent, url: string) => {
+    if (!isSafeForAppNavigation(url, devOrigin, rendererDir)) {
+      event.preventDefault();
+    }
+  });
+
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (isSafeForExternalOpen(url)) {
+      void shell.openExternal(url);
+    }
+    return { action: 'deny' };
+  });
+}
+
+function attachWebContentsDiagnosticsForTest(win: BrowserWindow): void {
+  if (process.env.NODE_ENV !== 'test') return;
+
+  const prefix = `[e2e][webContents:${win.id}]`;
+
+  win.webContents.on('console-message', (_event, level, message, line, sourceId) => {
+    const lvl = typeof level === 'number' ? level : -1;
+    console.error(`${prefix}[console:${lvl}] ${message} (${sourceId}:${line})`);
+  });
+
+  win.webContents.on('render-process-gone', (_event, details) => {
+    console.error(`${prefix}[render-process-gone] reason=${details.reason} exitCode=${details.exitCode}`);
+  });
+
+  win.webContents.on('preload-error' as any, (_event: unknown, preloadPath: string, error: Error) => {
+    console.error(`${prefix}[preload-error] ${preloadPath}: ${error?.message || String(error)}`);
+  });
 }
 
 type AuthTokensPayload = {
@@ -137,6 +365,13 @@ type GalleryGenerateResult = {
 
 type GalleryListPayload = {
   saveId: string;
+};
+
+type GalleryDownloadKind = 'thumb' | 'image';
+
+type GalleryDownloadPayload = {
+  galleryId: string;
+  kind: GalleryDownloadKind;
 };
 
 type GalleryItem = Record<string, unknown>;
@@ -427,6 +662,17 @@ function isGalleryListPayload(value: unknown): value is GalleryListPayload {
   if (!isObjectRecord(value)) return false;
   const rec = value as Record<string, unknown>;
   return typeof rec.saveId === 'string' && rec.saveId.trim() !== '';
+}
+
+function isGalleryDownloadPayload(value: unknown): value is GalleryDownloadPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  const kind = rec.kind;
+  return (
+    typeof rec.galleryId === 'string' &&
+    rec.galleryId.trim() !== '' &&
+    (kind === 'thumb' || kind === 'image')
+  );
 }
 
 function isTimelineSimulatePayload(value: unknown): value is TimelineSimulatePayload {
@@ -783,6 +1029,7 @@ let mainWindow: BrowserWindow | null = null;
 let petWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
 let petInteractive = false;
+let updateManager: UpdateManager | null = null;
 
 function safeSendToRenderer(channel: string, payload: unknown): void {
   const preferred = mainWindow;
@@ -1297,10 +1544,232 @@ async function requireAccessTokenFromDisk(): Promise<string> {
   return tokens.accessToken;
 }
 
+type AppEncConfig = {
+  enabled: boolean;
+  primaryKid: string;
+  keys: Map<string, Buffer>;
+};
+
+function base64UrlEncode(buf: Buffer): string {
+  return buf
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+}
+
+function base64UrlDecode(raw: string): Buffer {
+  const s = raw.trim().replace(/-/g, '+').replace(/_/g, '/');
+  const pad = '='.repeat((4 - (s.length % 4)) % 4);
+  return Buffer.from(s + pad, 'base64');
+}
+
+function parseAppEncKeys(raw: string): Map<string, Buffer> {
+  const out = new Map<string, Buffer>();
+  const parts = raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter((s) => s !== '');
+  for (const item of parts) {
+    const idx = item.indexOf(':');
+    if (idx <= 0) throw new Error('APPENC_MISCONFIG');
+    const kid = item.slice(0, idx).trim();
+    const keyRaw = item.slice(idx + 1).trim();
+    if (!kid || !keyRaw) throw new Error('APPENC_MISCONFIG');
+    const key = base64UrlDecode(keyRaw);
+    if (key.length !== 32) throw new Error('APPENC_MISCONFIG');
+    out.set(kid, key);
+  }
+  return out;
+}
+
+const APP_ENC_CONFIG: AppEncConfig = (() => {
+  if (!envFlagTruthy('PARA_APPENC_ENABLED')) {
+    return { enabled: false, primaryKid: '', keys: new Map() };
+  }
+
+  const keysRaw = process.env.PARA_APPENC_KEYS;
+  const primaryKid = typeof process.env.PARA_APPENC_PRIMARY_KID === 'string' ? process.env.PARA_APPENC_PRIMARY_KID.trim() : '';
+  if (typeof keysRaw !== 'string' || keysRaw.trim() === '' || primaryKid === '') {
+    throw new Error('APPENC_MISCONFIG');
+  }
+  const keys = parseAppEncKeys(keysRaw);
+  if (!keys.has(primaryKid)) {
+    throw new Error('APPENC_MISCONFIG');
+  }
+  return { enabled: true, primaryKid, keys };
+})();
+
+function getHeaderValue(headers: Record<string, string> | undefined, name: string): string {
+  if (!headers) return '';
+  for (const [k, v] of Object.entries(headers)) {
+    if (k.trim().toLowerCase() === name.trim().toLowerCase()) return v;
+  }
+  return '';
+}
+
+function isJsonContentType(contentType: string): boolean {
+  const base = contentType.split(';', 1)[0]?.trim().toLowerCase() ?? '';
+  return base === 'application/json';
+}
+
+function buildReqAad(args: {
+  kid: string;
+  ts: number;
+  rid: string;
+  method: string;
+  path: string;
+  query: string;
+}): string {
+  return (
+    'para-appenc-v1\n' +
+    `typ=req\n` +
+    `kid=${args.kid}\n` +
+    `ts=${args.ts}\n` +
+    `rid=${args.rid}\n` +
+    `method=${args.method}\n` +
+    `path=${args.path}\n` +
+    `query=${args.query}`
+  );
+}
+
+function buildRespAad(args: { kid: string; ts: number; rid: string; status: number }): string {
+  return (
+    'para-appenc-v1\n' +
+    `typ=resp\n` +
+    `kid=${args.kid}\n` +
+    `ts=${args.ts}\n` +
+    `rid=${args.rid}\n` +
+    `status=${args.status}`
+  );
+}
+
 async function fetchAuthedJson(
   apiPath: string,
   init: RequestInit & { headers?: Record<string, string> }
 ): Promise<{ response: Response; json: unknown }> {
+  if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
+    throw new Error('FETCH_UNAVAILABLE');
+  }
+
+  const accessToken = await requireAccessTokenFromDisk();
+  const baseUrl = getServerBaseUrl();
+
+  const fullUrl = buildApiUrl(baseUrl, apiPath);
+  const urlObj = new URL(fullUrl);
+  const method = String(init.method ?? 'GET').toUpperCase();
+  const headersIn = init.headers ?? {};
+  const contentType = getHeaderValue(headersIn, 'content-type');
+
+  let requestRid: string | null = null;
+  let initForFetch: RequestInit = {
+    ...init,
+    headers: {
+      ...headersIn,
+      Authorization: `Bearer ${accessToken}`
+    }
+  };
+
+  const canEncryptJsonBody =
+    APP_ENC_CONFIG.enabled &&
+    typeof init.body === 'string' &&
+    isJsonContentType(contentType);
+
+  if (canEncryptJsonBody) {
+    const rid = base64UrlEncode(crypto.randomBytes(16));
+    const ts = Math.floor(Date.now() / 1000);
+    const nonce = crypto.randomBytes(12);
+    const key = APP_ENC_CONFIG.keys.get(APP_ENC_CONFIG.primaryKid);
+    if (!key) throw new Error('APPENC_MISCONFIG');
+
+    const query = urlObj.search.startsWith('?') ? urlObj.search.slice(1) : '';
+    const aad = buildReqAad({
+      kid: APP_ENC_CONFIG.primaryKid,
+      ts,
+      rid,
+      method,
+      path: urlObj.pathname,
+      query
+    });
+
+    const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+    cipher.setAAD(Buffer.from(aad, 'utf8'));
+    const ciphertext = Buffer.concat([
+      cipher.update(Buffer.from(init.body as string, 'utf8')),
+      cipher.final()
+    ]);
+    const tag = cipher.getAuthTag();
+    const ct = base64UrlEncode(Buffer.concat([ciphertext, tag]));
+
+    const env = {
+      v: 1,
+      typ: 'req',
+      alg: 'A256GCM',
+      kid: APP_ENC_CONFIG.primaryKid,
+      ts,
+      rid,
+      nonce: base64UrlEncode(nonce),
+      ct
+    };
+
+    requestRid = rid;
+    initForFetch = {
+      ...initForFetch,
+      body: JSON.stringify(env),
+      headers: {
+        ...(initForFetch.headers as Record<string, string>),
+        'Content-Type': 'application/json',
+        'X-Para-Enc': 'v1',
+        'X-Para-Enc-Resp': 'v1'
+      }
+    };
+  }
+
+  let resp: Response;
+  try {
+    resp = await fetch(fullUrl, initForFetch);
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (resp.status === 401) {
+    await clearAuthTokensOnDisk();
+    throw new Error('NOT_LOGGED_IN');
+  }
+
+  let json = await readJsonResponse(resp);
+  if (resp.headers.get('X-Para-Enc') === 'v1') {
+    if (!isObjectRecord(json)) throw new Error('API_FAILED');
+    const env = json as Record<string, unknown>;
+    if (env.v !== 1 || env.typ !== 'resp' || env.alg !== 'A256GCM') throw new Error('API_FAILED');
+    if (typeof env.kid !== 'string' || typeof env.ts !== 'number' || typeof env.rid !== 'string') throw new Error('API_FAILED');
+    if (typeof env.nonce !== 'string' || typeof env.ct !== 'string') throw new Error('API_FAILED');
+    if (requestRid && env.rid !== requestRid) throw new Error('API_FAILED');
+    const key = APP_ENC_CONFIG.keys.get(env.kid);
+    if (!key) throw new Error('API_FAILED');
+
+    const nonce = base64UrlDecode(env.nonce);
+    const ctAll = base64UrlDecode(env.ct);
+    if (nonce.length !== 12 || ctAll.length < 17) throw new Error('API_FAILED');
+    const ciphertext = ctAll.slice(0, ctAll.length - 16);
+    const tag = ctAll.slice(ctAll.length - 16);
+
+    const aad = buildRespAad({ kid: env.kid, ts: env.ts, rid: env.rid, status: resp.status });
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+    decipher.setAAD(Buffer.from(aad, 'utf8'));
+    decipher.setAuthTag(tag);
+    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const text = plain.toString('utf8');
+    json = text.trim() === '' ? null : (JSON.parse(text) as unknown);
+  }
+
+  return { response: resp, json };
+}
+
+async function fetchAuthedBytes(
+  apiPath: string,
+  init: RequestInit & { headers?: Record<string, string> }
+): Promise<{ response: Response; bytes: Uint8Array }> {
   if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
     throw new Error('FETCH_UNAVAILABLE');
   }
@@ -1326,8 +1795,13 @@ async function fetchAuthedJson(
     throw new Error('NOT_LOGGED_IN');
   }
 
-  const json = await readJsonResponse(resp);
-  return { response: resp, json };
+  let buf: ArrayBuffer;
+  try {
+    buf = await resp.arrayBuffer();
+  } catch {
+    buf = new ArrayBuffer(0);
+  }
+  return { response: resp, bytes: new Uint8Array(buf) };
 }
 
 function throwApiErrorForStatus(resp: Response): never {
@@ -1980,6 +2454,27 @@ class FeatureFlagsPoller {
 
 const featureFlagsPoller = new FeatureFlagsPoller();
 
+function shouldEnforceSecureTokenStorage(): boolean {
+  if (envFlagTruthy('PARA_ENFORCE_SECURE_TOKEN_STORAGE')) return true;
+  return app.isPackaged;
+}
+
+function isSecureTokenStorageAvailable(): boolean {
+  if (process.env.NODE_ENV === 'test' && envFlagTruthy('PARA_TEST_DISABLE_SAFE_STORAGE')) {
+    return false;
+  }
+
+  if (!safeStorage.isEncryptionAvailable()) return false;
+
+  try {
+    const backend = (safeStorage as unknown as { getSelectedStorageBackend?: () => unknown }).getSelectedStorageBackend?.();
+    if (backend === 'basic_text') return false;
+  } catch {
+  }
+
+  return true;
+}
+
 function isStoredAuthTokensFile(value: unknown): value is StoredAuthTokensFile {
   if (!isObjectRecord(value)) return false;
   return (
@@ -1990,7 +2485,13 @@ function isStoredAuthTokensFile(value: unknown): value is StoredAuthTokensFile {
 }
 
 async function writeAuthTokensToDisk(payload: AuthTokensPayload): Promise<{ secure: boolean }> {
-  const secure = safeStorage.isEncryptionAvailable();
+  const enforce = shouldEnforceSecureTokenStorage();
+  const secure = isSecureTokenStorageAvailable();
+
+  if (enforce && !secure) {
+    await clearAuthTokensOnDisk();
+    throw new Error('SAFE_STORAGE_UNAVAILABLE');
+  }
 
   const stored: StoredAuthTokensFile = {
     secure,
@@ -2016,6 +2517,7 @@ async function writeAuthTokensToDisk(payload: AuthTokensPayload): Promise<{ secu
 async function readAuthTokensFromDisk(): Promise<
   { accessToken: string; refreshToken: string; secure: boolean } | null
 > {
+  const enforce = shouldEnforceSecureTokenStorage();
   const filePath = getAuthTokensFilePath();
 
   let raw: string;
@@ -2037,11 +2539,20 @@ async function readAuthTokensFromDisk(): Promise<
   if (!isStoredAuthTokensFile(parsed)) return null;
 
   if (!parsed.secure) {
+    if (enforce) {
+      await clearAuthTokensOnDisk();
+      return null;
+    }
     return {
       accessToken: parsed.accessToken,
       refreshToken: parsed.refreshToken,
       secure: false
     };
+  }
+
+  if (enforce && !isSecureTokenStorageAvailable()) {
+    await clearAuthTokensOnDisk();
+    return null;
   }
 
   if (!safeStorage.isEncryptionAvailable()) return null;
@@ -2068,22 +2579,22 @@ async function clearAuthTokensOnDisk(): Promise<void> {
 }
 
 function registerAuthIpcHandlers() {
-  ipcMain.handle(IPC_AUTH_SET_TOKENS, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_AUTH_SET_TOKENS, async (_event, payload: unknown) => {
     if (!isAuthTokensPayload(payload)) {
       throw new Error('Invalid payload for auth:setTokens');
     }
     return writeAuthTokensToDisk(payload);
   });
 
-  ipcMain.handle(IPC_AUTH_GET_TOKENS, async () => {
+  handleTrustedIpc(IPC_AUTH_GET_TOKENS, async () => {
     return readAuthTokensFromDisk();
   });
 
-  ipcMain.handle(IPC_AUTH_CLEAR_TOKENS, async () => {
+  handleTrustedIpc(IPC_AUTH_CLEAR_TOKENS, async () => {
     await clearAuthTokensOnDisk();
   });
 
-  ipcMain.handle(IPC_AUTH_LOGIN, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_AUTH_LOGIN, async (_event, payload: unknown) => {
     if (!isAuthLoginPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2091,35 +2602,35 @@ function registerAuthIpcHandlers() {
     return loginAndGetMe(payload.email, payload.password);
   });
 
-  ipcMain.handle(IPC_AUTH_ME, async () => {
+  handleTrustedIpc(IPC_AUTH_ME, async () => {
     return readMeFromDiskToken();
   });
 
-  ipcMain.handle(IPC_AUTH_LOGOUT, async () => {
+  handleTrustedIpc(IPC_AUTH_LOGOUT, async () => {
     await clearAuthTokensOnDisk();
   });
 }
 
 function registerWsIpcHandlers() {
-  ipcMain.handle(IPC_WS_CONNECT, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_WS_CONNECT, async (_event, payload: unknown) => {
     return wsClient.connect(payload as WsConnectPayload);
   });
 
-  ipcMain.handle(IPC_WS_DISCONNECT, async () => {
+  handleTrustedIpc(IPC_WS_DISCONNECT, async () => {
     return wsClient.disconnect();
   });
 
-  ipcMain.handle(IPC_WS_CHAT_SEND, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_WS_CHAT_SEND, async (_event, payload: unknown) => {
     wsClient.chatSend(payload as WsChatSendPayload);
   });
 
-  ipcMain.handle(IPC_WS_INTERRUPT, async () => {
+  handleTrustedIpc(IPC_WS_INTERRUPT, async () => {
     wsClient.interrupt();
   });
 }
 
 function registerSavesAndPersonasIpcHandlers() {
-  ipcMain.handle(IPC_SAVES_LIST, async () => {
+  handleTrustedIpc(IPC_SAVES_LIST, async () => {
     const { response, json } = await fetchAuthedJson('/api/v1/saves', { method: 'GET' });
     if (!response.ok) {
       throw new Error('API_FAILED');
@@ -2142,7 +2653,7 @@ function registerSavesAndPersonasIpcHandlers() {
       .filter((it) => it.id !== '' && it.name !== '');
   });
 
-  ipcMain.handle(IPC_SAVES_CREATE, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_SAVES_CREATE, async (_event, payload: unknown) => {
     if (!isSavesCreatePayload(payload) || payload.name.trim() === '') {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2162,7 +2673,7 @@ function registerSavesAndPersonasIpcHandlers() {
     return { id: json.id, name: json.name };
   });
 
-  ipcMain.handle(IPC_SAVES_BIND_PERSONA, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_SAVES_BIND_PERSONA, async (_event, payload: unknown) => {
     if (!isSavesBindPersonaPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2185,7 +2696,7 @@ function registerSavesAndPersonasIpcHandlers() {
     return { save_id: json.save_id, persona_id: json.persona_id };
   });
 
-  ipcMain.handle(IPC_PERSONAS_LIST, async () => {
+  handleTrustedIpc(IPC_PERSONAS_LIST, async () => {
     const { response, json } = await fetchAuthedJson('/api/v1/personas', { method: 'GET' });
     if (!response.ok) {
       throw new Error('API_FAILED');
@@ -2251,14 +2762,14 @@ async function readKnowledgeMaterialStatus(id: string): Promise<KnowledgeMateria
 }
 
 function registerKnowledgeIpcHandlers() {
-  ipcMain.handle(IPC_KNOWLEDGE_UPLOAD_MATERIAL, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_KNOWLEDGE_UPLOAD_MATERIAL, async (_event, payload: unknown) => {
     if (!isKnowledgeUploadPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
     return uploadKnowledgeMaterial(payload);
   });
 
-  ipcMain.handle(IPC_KNOWLEDGE_MATERIAL_STATUS, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_KNOWLEDGE_MATERIAL_STATUS, async (_event, payload: unknown) => {
     if (!isKnowledgeMaterialStatusPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2267,7 +2778,7 @@ function registerKnowledgeIpcHandlers() {
 }
 
 function registerVisionIpcHandlers() {
-  ipcMain.handle(IPC_VISION_UPLOAD_SCREENSHOT, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_VISION_UPLOAD_SCREENSHOT, async (_event, payload: unknown) => {
     if (!isVisionUploadScreenshotPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2287,7 +2798,7 @@ function registerVisionIpcHandlers() {
 }
 
 function registerGalleryIpcHandlers() {
-  ipcMain.handle(IPC_GALLERY_GENERATE, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_GALLERY_GENERATE, async (_event, payload: unknown) => {
     if (!isGalleryGeneratePayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2304,7 +2815,7 @@ function registerGalleryIpcHandlers() {
     return parseGalleryGenerateResponse(json);
   });
 
-  ipcMain.handle(IPC_GALLERY_LIST, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_GALLERY_LIST, async (_event, payload: unknown) => {
     if (!isGalleryListPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2317,10 +2828,23 @@ function registerGalleryIpcHandlers() {
     if (!Array.isArray(json)) throw new Error('API_FAILED');
     return json as GalleryItem[];
   });
+
+  handleTrustedIpc(IPC_GALLERY_DOWNLOAD, async (_event, payload: unknown) => {
+    if (!isGalleryDownloadPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    const { response, bytes } = await fetchAuthedBytes(
+      `/api/v1/gallery/items/${encodeURIComponent(payload.galleryId)}/download?kind=${encodeURIComponent(payload.kind)}`,
+      { method: 'GET' },
+    );
+    if (!response.ok) throw new Error('API_FAILED');
+    return bytes.buffer;
+  });
 }
 
 function registerTimelineIpcHandlers() {
-  ipcMain.handle(IPC_TIMELINE_SIMULATE, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_TIMELINE_SIMULATE, async (_event, payload: unknown) => {
     if (!isTimelineSimulatePayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2338,7 +2862,7 @@ function registerTimelineIpcHandlers() {
     return parseTimelineSimulateResult(json);
   });
 
-  ipcMain.handle(IPC_TIMELINE_LIST, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_TIMELINE_LIST, async (_event, payload: unknown) => {
     if (!isTimelineListPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2360,7 +2884,7 @@ function registerTimelineIpcHandlers() {
 }
 
 function registerSocialIpcHandlers() {
-  ipcMain.handle(IPC_SOCIAL_CREATE_ROOM, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_SOCIAL_CREATE_ROOM, async (_event, payload: unknown) => {
     if (!isSocialCreateRoomPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2375,7 +2899,7 @@ function registerSocialIpcHandlers() {
     return parseSocialRoomCreateResult(json);
   });
 
-  ipcMain.handle(IPC_SOCIAL_INVITE, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_SOCIAL_INVITE, async (_event, payload: unknown) => {
     if (!isSocialInvitePayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2392,7 +2916,7 @@ function registerSocialIpcHandlers() {
     return parseSocialRoomInviteResult(json);
   });
 
-  ipcMain.handle(IPC_SOCIAL_JOIN, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_SOCIAL_JOIN, async (_event, payload: unknown) => {
     if (!isSocialJoinPayload(payload)) {
       throw new Error('INVALID_PAYLOAD');
     }
@@ -2407,7 +2931,7 @@ function registerSocialIpcHandlers() {
 }
 
 function registerUgcIpcHandlers() {
-  ipcMain.handle(IPC_UGC_LIST_APPROVED, async (): Promise<UgcApprovedAssetListItem[]> => {
+  handleTrustedIpc(IPC_UGC_LIST_APPROVED, async (): Promise<UgcApprovedAssetListItem[]> => {
     const { response, json } = await fetchAuthedJson('/api/v1/ugc/assets?status=approved', {
       method: 'GET'
     });
@@ -2430,26 +2954,26 @@ function registerUgcIpcHandlers() {
 }
 
 function registerPluginsIpcHandlers() {
-  ipcMain.handle(IPC_PLUGINS_GET_STATUS, async (): Promise<PluginStatus> => {
+  handleTrustedIpc(IPC_PLUGINS_GET_STATUS, async (): Promise<PluginStatus> => {
     return pluginManager.getStatus();
   });
 
-  ipcMain.handle(IPC_PLUGINS_GET_MENU_ITEMS, async (): Promise<PluginMenuItem[]> => {
+  handleTrustedIpc(IPC_PLUGINS_GET_MENU_ITEMS, async (): Promise<PluginMenuItem[]> => {
     return pluginManager.getMenuItems();
   });
 
-  ipcMain.handle(IPC_PLUGINS_SET_ENABLED, async (_event, payload: unknown): Promise<PluginStatus> => {
+  handleTrustedIpc(IPC_PLUGINS_SET_ENABLED, async (_event, payload: unknown): Promise<PluginStatus> => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const enabled = payload.enabled;
     if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
     return pluginManager.setEnabled(enabled);
   });
 
-  ipcMain.handle(IPC_PLUGINS_LIST_APPROVED, async (): Promise<ApprovedPluginListItem[]> => {
+  handleTrustedIpc(IPC_PLUGINS_LIST_APPROVED, async (): Promise<ApprovedPluginListItem[]> => {
     return pluginManager.listApproved();
   });
 
-  ipcMain.handle(IPC_PLUGINS_INSTALL, async (_event, payload: unknown): Promise<PluginStatus> => {
+  handleTrustedIpc(IPC_PLUGINS_INSTALL, async (_event, payload: unknown): Promise<PluginStatus> => {
     if (payload == null) return pluginManager.install();
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const pluginId = payload.pluginId;
@@ -2462,7 +2986,7 @@ function registerPluginsIpcHandlers() {
     });
   });
 
-  ipcMain.handle(IPC_PLUGINS_MENU_CLICK, async (_event, payload: unknown): Promise<{ ok: boolean }> => {
+  handleTrustedIpc(IPC_PLUGINS_MENU_CLICK, async (_event, payload: unknown): Promise<{ ok: boolean }> => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const pluginId = payload.pluginId;
     const id = payload.id;
@@ -2472,7 +2996,7 @@ function registerPluginsIpcHandlers() {
 }
 
 function registerAssistantIpcHandlers() {
-  ipcMain.handle(IPC_ASSISTANT_SET_ENABLED, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_ASSISTANT_SET_ENABLED, async (_event, payload: unknown) => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const enabled = payload.enabled;
     const saveId = payload.saveId;
@@ -2481,14 +3005,14 @@ function registerAssistantIpcHandlers() {
     assistantManager.setEnabled(enabled, saveId);
   });
 
-  ipcMain.handle(IPC_ASSISTANT_SET_IDLE_ENABLED, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_ASSISTANT_SET_IDLE_ENABLED, async (_event, payload: unknown) => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const enabled = payload.enabled;
     if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
     assistantManager.setIdleEnabled(enabled);
   });
 
-  ipcMain.handle(IPC_ASSISTANT_WRITE_CLIPBOARD_TEXT, async (_event, payload: unknown) => {
+  handleTrustedIpc(IPC_ASSISTANT_WRITE_CLIPBOARD_TEXT, async (_event, payload: unknown) => {
     if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
     const text = payload.text;
     if (typeof text !== 'string') throw new Error('INVALID_PAYLOAD');
@@ -2496,8 +3020,43 @@ function registerAssistantIpcHandlers() {
   });
 }
 
+function getDisabledUpdateState(): UpdateState {
+  return {
+    enabled: false,
+    phase: 'disabled',
+    currentVersion: app.getVersion(),
+    availableVersion: null,
+    progress: null,
+    error: null,
+    lastCheckedAt: null,
+    allowDowngrade: false,
+    source: 'none'
+  };
+}
+
+function registerUpdateIpcHandlers() {
+  handleTrustedIpc(IPC_UPDATE_GET_STATE, async (): Promise<UpdateState> => {
+    return updateManager ? updateManager.getState() : getDisabledUpdateState();
+  });
+
+  handleTrustedIpc(IPC_UPDATE_CHECK, async (): Promise<UpdateState> => {
+    return updateManager ? updateManager.checkForUpdates() : getDisabledUpdateState();
+  });
+
+  handleTrustedIpc(IPC_UPDATE_DOWNLOAD, async (): Promise<UpdateState> => {
+    return updateManager ? updateManager.downloadUpdate() : getDisabledUpdateState();
+  });
+
+  handleTrustedIpc(IPC_UPDATE_INSTALL, async (): Promise<UpdateState> => {
+    return updateManager ? updateManager.installUpdate() : getDisabledUpdateState();
+  });
+}
+
 function createMainWindow() {
   const preloadPath = path.join(__dirname, '..', 'preload', 'index.js');
+  const devUrlRaw = process.env.VITE_DEV_SERVER_URL;
+  const devUrl = typeof devUrlRaw === 'string' && devUrlRaw.trim() !== '' ? devUrlRaw : null;
+  const devToolsEnabled = Boolean(devUrl);
 
   const win = new BrowserWindow({
     width: 1100,
@@ -2506,11 +3065,21 @@ function createMainWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: SANDBOX_ENABLED,
+      devTools: devToolsEnabled,
+      webviewTag: false,
+      spellcheck: false,
+      navigateOnDragDrop: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       preload: preloadPath
     }
   });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
+  attachWebContentsDiagnosticsForTest(win);
+
+  applyNavigationAndExternalGuards(win);
+
   if (devUrl) {
     win.loadURL(devUrl);
     win.webContents.openDevTools({ mode: 'detach' });
@@ -2519,13 +3088,9 @@ function createMainWindow() {
     win.loadFile(indexHtml);
   }
 
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
   win.webContents.on('did-finish-load', () => {
     safeSendToRenderer(IPC_WS_STATUS, wsClient.getStatus());
+    safeSendToRenderer(IPC_UPDATE_STATE, updateManager ? updateManager.getState() : getDisabledUpdateState());
   });
 
   return win;
@@ -2533,6 +3098,9 @@ function createMainWindow() {
 
 function createPetWindow() {
   const preloadPath = path.join(__dirname, '..', 'preload', 'index.js');
+  const devUrlRaw = process.env.VITE_DEV_SERVER_URL;
+  const devUrl = typeof devUrlRaw === 'string' && devUrlRaw.trim() !== '' ? devUrlRaw : null;
+  const devToolsEnabled = Boolean(devUrl);
 
   const win = new BrowserWindow({
     width: 320,
@@ -2547,24 +3115,29 @@ function createPetWindow() {
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,
+      sandbox: SANDBOX_ENABLED,
+      devTools: devToolsEnabled,
+      webviewTag: false,
+      spellcheck: false,
+      navigateOnDragDrop: false,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
       preload: preloadPath
     }
   });
 
+  attachWebContentsDiagnosticsForTest(win);
+
+  applyNavigationAndExternalGuards(win);
+
   win.setIgnoreMouseEvents(true, { forward: true });
 
-  const devUrl = process.env.VITE_DEV_SERVER_URL;
   if (devUrl) {
     win.loadURL(`${devUrl}?window=pet`);
   } else {
     const indexHtml = path.join(__dirname, '..', 'renderer', 'index.html');
     win.loadFile(indexHtml, { query: { window: 'pet' } });
   }
-
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
-    return { action: 'deny' };
-  });
 
   return win;
 }
@@ -2663,6 +3236,14 @@ function setupTray(): void {
 }
 
 app.whenReady().then(async () => {
+  setupDefaultDenyPermissions();
+
+  updateManager = await createUpdateManager({
+    onState: (state) => {
+      safeSendToAllRenderers(IPC_UPDATE_STATE, state);
+    }
+  });
+
   registerAuthIpcHandlers();
   registerWsIpcHandlers();
   registerSavesAndPersonasIpcHandlers();
@@ -2674,6 +3255,7 @@ app.whenReady().then(async () => {
   registerUgcIpcHandlers();
   registerAssistantIpcHandlers();
   registerPluginsIpcHandlers();
+  registerUpdateIpcHandlers();
 
   await pluginManager.init();
   featureFlagsPoller.start();

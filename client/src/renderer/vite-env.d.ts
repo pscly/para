@@ -6,8 +6,6 @@ export type GalleryItem = {
   status: string;
   created_at: string;
   prompt: string;
-  thumb_data_url?: string | null;
-  image_data_url?: string | null;
 };
 
 export type UgcAsset = {
@@ -78,6 +76,7 @@ export type DesktopApi = {
   gallery: {
     generate: (payload: { saveId: string; prompt: string }) => Promise<{ id: string; status: string }>;
     list: (saveId: string) => Promise<GalleryItem[]>;
+    download: (payload: { galleryId: string; kind: 'thumb' | 'image' }) => Promise<ArrayBuffer>;
   };
   ugc: {
     listApproved: () => Promise<UgcAsset[]>;
@@ -90,6 +89,113 @@ export type DesktopApi = {
     getMenuItems: () => Promise<PluginMenuItem[]>;
     clickMenuItem: (payload: { pluginId: string; id: string }) => Promise<{ ok: boolean }>;
     onOutput: (handler: (payload: PluginOutputPayload) => void) => () => void;
+  };
+  update: {
+    getState: () => Promise<{
+      enabled: boolean;
+      phase:
+        | 'disabled'
+        | 'idle'
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'installing'
+        | 'installed'
+        | 'error';
+      currentVersion: string;
+      availableVersion: string | null;
+      progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+      error: string | null;
+      lastCheckedAt: string | null;
+      allowDowngrade: boolean;
+      source: 'real' | 'fake' | 'none';
+    }>;
+    check: () => Promise<{
+      enabled: boolean;
+      phase:
+        | 'disabled'
+        | 'idle'
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'installing'
+        | 'installed'
+        | 'error';
+      currentVersion: string;
+      availableVersion: string | null;
+      progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+      error: string | null;
+      lastCheckedAt: string | null;
+      allowDowngrade: boolean;
+      source: 'real' | 'fake' | 'none';
+    }>;
+    download: () => Promise<{
+      enabled: boolean;
+      phase:
+        | 'disabled'
+        | 'idle'
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'installing'
+        | 'installed'
+        | 'error';
+      currentVersion: string;
+      availableVersion: string | null;
+      progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+      error: string | null;
+      lastCheckedAt: string | null;
+      allowDowngrade: boolean;
+      source: 'real' | 'fake' | 'none';
+    }>;
+    install: () => Promise<{
+      enabled: boolean;
+      phase:
+        | 'disabled'
+        | 'idle'
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'installing'
+        | 'installed'
+        | 'error';
+      currentVersion: string;
+      availableVersion: string | null;
+      progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+      error: string | null;
+      lastCheckedAt: string | null;
+      allowDowngrade: boolean;
+      source: 'real' | 'fake' | 'none';
+    }>;
+    onState: (handler: (state: {
+      enabled: boolean;
+      phase:
+        | 'disabled'
+        | 'idle'
+        | 'checking'
+        | 'available'
+        | 'not-available'
+        | 'downloading'
+        | 'downloaded'
+        | 'installing'
+        | 'installed'
+        | 'error';
+      currentVersion: string;
+      availableVersion: string | null;
+      progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+      error: string | null;
+      lastCheckedAt: string | null;
+      allowDowngrade: boolean;
+      source: 'real' | 'fake' | 'none';
+    }) => void) => () => void;
   };
   timeline: {
     simulate: (payload: {

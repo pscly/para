@@ -251,8 +251,14 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
   const code = [
     `addMenuItem({ id: ${JSON.stringify(menuItemId)}, label: ${JSON.stringify(menuItemLabel)} });`,
     `onMenuClick(${JSON.stringify(menuItemId)}, () => {`,
-    `  say('e2e: plugin bubble says hello');`,
     `  suggestion('e2e: suggestion line');`,
+    `  let hasProcess = 'unknown';`,
+    `  try { hasProcess = typeof process; } catch { hasProcess = 'throw'; }`,
+    `  let hasRequire = 'unknown';`,
+    `  try { hasRequire = typeof require; } catch { hasRequire = 'throw'; }`,
+    `  let requireFs = 'unknown';`,
+    `  try { require('fs'); requireFs = 'yes'; } catch { requireFs = 'no'; }`,
+    `  say('e2e: plugin bubble says hello | process=' + hasProcess + ' require=' + hasRequire + ' requireFs=' + requireFs);`,
     `});`
   ].join('\n');
 
@@ -356,7 +362,11 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
 
           const bubble = petPage.getByTestId('pet-plugin-bubble');
           await expect(bubble).toBeVisible({ timeout: 15_000 });
-          await expect(petPage.getByTestId('pet-plugin-bubble-text')).toHaveText(/\S+/, { timeout: 5_000 });
+          const bubbleText = petPage.getByTestId('pet-plugin-bubble-text');
+          await expect(bubbleText).toHaveText(/\S+/, { timeout: 5_000 });
+          await expect(bubbleText).toContainText('process=undefined');
+          await expect(bubbleText).toContainText('require=undefined');
+          await expect(bubbleText).toContainText('requireFs=no');
         });
 
         const evidencePath = getEvidencePath('task-21-plugin.png');

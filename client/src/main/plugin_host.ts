@@ -1,5 +1,12 @@
 import fs from 'node:fs/promises';
-import vm from 'node:vm';
+import {
+  getQuickJS,
+  shouldInterruptAfterDeadline,
+  type QuickJSContext,
+  type QuickJSHandle,
+  type QuickJSRuntime,
+  type QuickJSWASMModule,
+} from 'quickjs-emscripten';
 
 type HostCmd =
   | {
@@ -38,12 +45,18 @@ const MENU_LABEL_MAX_CHARS = 80;
 const SYNC_EVAL_TIMEOUT_MS = 1000;
 const MENU_CLICK_TIMEOUT_MS = 400;
 
+const PLUGIN_MEMORY_LIMIT_BYTES = 64 * 1024 * 1024;
+const PLUGIN_STACK_LIMIT_BYTES = 512 * 1024;
+
 type HostRuntime = {
   pluginId: string;
   version: string;
   entryPath: string;
-  context: vm.Context;
-  menuClickHandlers: Record<string, unknown>;
+  qjs: QuickJSWASMModule;
+  runtime: QuickJSRuntime;
+  context: QuickJSContext;
+  menuClickHandlers: Map<string, QuickJSHandle>;
+  menuClickHandlerCount: number;
 };
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
@@ -75,27 +88,64 @@ function send(msg: HostMsg): void {
 }
 
 let loadedOnce = false;
-let runtime: HostRuntime | null = null;
+let hostRuntime: HostRuntime | null = null;
 
-function makeMenuClickScriptSource(id: string): string {
-  const idLiteral = JSON.stringify(id);
-  return `(() => {
-  const fn = __menuClickHandlers[${idLiteral}];
-  if (typeof fn !== 'function') return false;
-  fn();
-  return true;
-})()`;
+let quickjsSingleton: Promise<QuickJSWASMModule> | null = null;
+function getQuickJSSingleton(): Promise<QuickJSWASMModule> {
+  if (!quickjsSingleton) quickjsSingleton = getQuickJS();
+  return quickjsSingleton;
+}
+
+function safeGetStringFromHandle(ctx: QuickJSContext, handle: QuickJSHandle): string {
+  try {
+    if (ctx.typeof(handle) !== 'string') return '';
+    return ctx.getString(handle);
+  } catch {
+    return '';
+  }
+}
+
+function runWithTimeout<T>(rt: QuickJSRuntime, timeoutMs: number, fn: () => T): T {
+  const deadline = Date.now() + Math.max(0, timeoutMs);
+  rt.setInterruptHandler(shouldInterruptAfterDeadline(deadline));
+  try {
+    return fn();
+  } finally {
+    rt.removeInterruptHandler();
+  }
+}
+
+function drainPendingJobs(rt: QuickJSRuntime): void {
+  const maxTotalJobs = 64;
+  let remaining = maxTotalJobs;
+  while (remaining > 0) {
+    const res = rt.executePendingJobs(1);
+    try {
+      if (res.error) {
+        return;
+      }
+      const ran = typeof res.value === 'number' ? res.value : 0;
+      if (ran <= 0) return;
+      remaining -= 1;
+    } finally {
+      try {
+        res.dispose();
+      } catch {
+      }
+    }
+  }
 }
 
 function handleMenuClick(cmd: Extract<HostCmd, { type: 'menu:click' }>): void {
   const requestId = clipText(safeString(cmd.requestId), 80);
   if (!requestId) return;
 
-  if (!runtime) {
+  const rt = hostRuntime;
+  if (!rt) {
     send({ type: 'menu:click:result', requestId, ok: false, error: 'NOT_LOADED' });
     return;
   }
-  if (safeString(cmd.pluginId).trim() !== runtime.pluginId) {
+  if (safeString(cmd.pluginId).trim() !== rt.pluginId) {
     send({ type: 'menu:click:result', requestId, ok: false, error: 'PLUGIN_MISMATCH' });
     return;
   }
@@ -106,14 +156,30 @@ function handleMenuClick(cmd: Extract<HostCmd, { type: 'menu:click' }>): void {
     return;
   }
 
+  const handler = rt.menuClickHandlers.get(id);
+  if (!handler) {
+    send({ type: 'menu:click:result', requestId, ok: false, error: 'NO_HANDLER' });
+    return;
+  }
+
   try {
-    const script = new vm.Script(makeMenuClickScriptSource(id), { filename: '<plugin_menu_click>' });
-    const ret = script.runInContext(runtime.context, { timeout: MENU_CLICK_TIMEOUT_MS });
-    if (ret === true) {
-      send({ type: 'menu:click:result', requestId, ok: true });
-    } else {
-      send({ type: 'menu:click:result', requestId, ok: false, error: 'NO_HANDLER' });
-    }
+    runWithTimeout(rt.runtime, MENU_CLICK_TIMEOUT_MS, () => {
+      const result = rt.context.callFunction(handler, rt.context.undefined);
+      try {
+        if (result.error) {
+          throw new Error('MENU_CLICK_THROW');
+        }
+      } finally {
+        try {
+          result.dispose();
+        } catch {
+        }
+      }
+
+      drainPendingJobs(rt.runtime);
+    });
+
+    send({ type: 'menu:click:result', requestId, ok: true });
   } catch {
     send({ type: 'menu:click:result', requestId, ok: false, error: 'MENU_CLICK_FAILED' });
   }
@@ -144,81 +210,159 @@ async function handleLoad(cmd: Extract<HostCmd, { type: 'load' }>): Promise<void
   }
 
   let menuCount = 0;
-  const menuClickHandlers: Record<string, unknown> = Object.create(null);
+  const menuClickHandlers = new Map<string, QuickJSHandle>();
   let menuClickHandlerCount = 0;
 
-  const api = {
-    say: (text: unknown) => {
-      const clipped = clipText(safeString(text), SAY_MAX_CHARS);
-      if (!clipped) return;
-      send({ type: 'say', pluginId, text: clipped });
-    },
-    suggestion: (text: unknown) => {
-      const clipped = clipText(safeString(text), SUGGESTION_MAX_CHARS);
-      if (!clipped) return;
-      send({ type: 'suggestion', pluginId, text: clipped });
-    },
-    addMenuItem: (payload: unknown) => {
-      if (menuCount >= MENU_ITEMS_MAX) return;
-      if (!isObjectRecord(payload)) return;
-      const id = clipText(safeString(payload.id), MENU_ID_MAX_CHARS);
-      const label = clipText(safeString(payload.label), MENU_LABEL_MAX_CHARS);
-      if (!id || !label) return;
+  let qjs: QuickJSWASMModule;
+  try {
+    qjs = await getQuickJSSingleton();
+  } catch {
+    send({ type: 'error', message: 'QJS_INIT_FAILED' });
+    return;
+  }
+
+  const qjsRuntime = qjs.newRuntime();
+  qjsRuntime.setMemoryLimit(PLUGIN_MEMORY_LIMIT_BYTES);
+  qjsRuntime.setMaxStackSize(PLUGIN_STACK_LIMIT_BYTES);
+  const qjsContext = qjsRuntime.newContext();
+
+  qjsContext
+    .newFunction('say', (textHandle) => {
+      const text = safeGetStringFromHandle(qjsContext, textHandle);
+      const clipped = clipText(text, SAY_MAX_CHARS);
+      if (clipped) send({ type: 'say', pluginId, text: clipped });
+      return qjsContext.undefined;
+    })
+    .consume((fn) => qjsContext.setProp(qjsContext.global, 'say', fn));
+
+  qjsContext
+    .newFunction('suggestion', (textHandle) => {
+      const text = safeGetStringFromHandle(qjsContext, textHandle);
+      const clipped = clipText(text, SUGGESTION_MAX_CHARS);
+      if (clipped) send({ type: 'suggestion', pluginId, text: clipped });
+      return qjsContext.undefined;
+    })
+    .consume((fn) => qjsContext.setProp(qjsContext.global, 'suggestion', fn));
+
+  qjsContext
+    .newFunction('addMenuItem', (payloadHandle) => {
+      if (menuCount >= MENU_ITEMS_MAX) return qjsContext.undefined;
+      let dumped: unknown;
+      try {
+        dumped = qjsContext.dump(payloadHandle);
+      } catch {
+        return qjsContext.undefined;
+      }
+      if (!isObjectRecord(dumped)) return qjsContext.undefined;
+      const id = clipText(safeString((dumped as Record<string, unknown>).id), MENU_ID_MAX_CHARS);
+      const label = clipText(safeString((dumped as Record<string, unknown>).label), MENU_LABEL_MAX_CHARS);
+      if (!id || !label) return qjsContext.undefined;
 
       menuCount += 1;
       send({ type: 'menu:add', pluginId, item: { id, label } });
-    },
-    onMenuClick: (idRaw: unknown, handler: unknown) => {
-      if (menuClickHandlerCount >= MENU_ITEMS_MAX) return;
-      const id = clipText(safeString(idRaw), MENU_ID_MAX_CHARS);
-      if (!id) return;
-      if (typeof handler !== 'function') return;
-      if (!Object.prototype.hasOwnProperty.call(menuClickHandlers, id)) {
-        menuClickHandlerCount += 1;
+      return qjsContext.undefined;
+    })
+    .consume((fn) => qjsContext.setProp(qjsContext.global, 'addMenuItem', fn));
+
+  qjsContext
+    .newFunction('onMenuClick', (idHandle, handlerHandle) => {
+      const id = clipText(safeGetStringFromHandle(qjsContext, idHandle), MENU_ID_MAX_CHARS);
+      if (!id) return qjsContext.undefined;
+      if (qjsContext.typeof(handlerHandle) !== 'function') return qjsContext.undefined;
+
+      const hasExisting = menuClickHandlers.has(id);
+      if (!hasExisting && menuClickHandlerCount >= MENU_ITEMS_MAX) return qjsContext.undefined;
+
+      const existing = menuClickHandlers.get(id);
+      if (existing) {
+        try {
+          existing.dispose();
+        } catch {
+        }
       }
-      menuClickHandlers[id] = handler;
-    }
-  };
 
-  const sandbox: Record<string, unknown> = {
-    say: api.say,
-    suggestion: api.suggestion,
-    addMenuItem: api.addMenuItem,
-    onMenuClick: api.onMenuClick,
-    __menuClickHandlers: menuClickHandlers,
-    console: {
-      log: () => {},
-      info: () => {},
-      warn: () => {},
-      error: () => {}
-    },
-    exports: {},
-    module: { exports: {} }
-  };
+      menuClickHandlers.set(id, handlerHandle.dup());
+      if (!hasExisting) menuClickHandlerCount += 1;
+      return qjsContext.undefined;
+    })
+    .consume((fn) => qjsContext.setProp(qjsContext.global, 'onMenuClick', fn));
 
-  let context: vm.Context;
-  try {
-    context = vm.createContext(sandbox, {
-      name: `plugin:${pluginId}@${version}`,
-      codeGeneration: { strings: false, wasm: false }
-    });
-  } catch {
-    context = vm.createContext(sandbox);
-  }
+  const consoleObj = qjsContext.newObject();
+  qjsContext
+    .newFunction('log', () => qjsContext.undefined)
+    .consume((fn) => qjsContext.setProp(consoleObj, 'log', fn));
+  qjsContext
+    .newFunction('info', () => qjsContext.undefined)
+    .consume((fn) => qjsContext.setProp(consoleObj, 'info', fn));
+  qjsContext
+    .newFunction('warn', () => qjsContext.undefined)
+    .consume((fn) => qjsContext.setProp(consoleObj, 'warn', fn));
+  qjsContext
+    .newFunction('error', () => qjsContext.undefined)
+    .consume((fn) => qjsContext.setProp(consoleObj, 'error', fn));
+  qjsContext.setProp(qjsContext.global, 'console', consoleObj);
+  consoleObj.dispose();
 
-  runtime = {
+  const exportsObj = qjsContext.newObject();
+  const moduleObj = qjsContext.newObject();
+  qjsContext.setProp(moduleObj, 'exports', exportsObj);
+  qjsContext.setProp(qjsContext.global, 'exports', exportsObj);
+  qjsContext.setProp(qjsContext.global, 'module', moduleObj);
+  exportsObj.dispose();
+  moduleObj.dispose();
+
+  hostRuntime = {
     pluginId,
     version,
     entryPath,
-    context,
-    menuClickHandlers
+    qjs,
+    runtime: qjsRuntime,
+    context: qjsContext,
+    menuClickHandlers,
+    menuClickHandlerCount,
   };
 
   try {
-    const script = new vm.Script(codeText, { filename: entryPath });
-    script.runInContext(context, { timeout: SYNC_EVAL_TIMEOUT_MS });
+    runWithTimeout(qjsRuntime, SYNC_EVAL_TIMEOUT_MS, () => {
+      const result = qjsContext.evalCode(codeText, entryPath, { type: 'global' });
+      try {
+        if (result.error) {
+          throw new Error('PLUGIN_EXEC_ERROR');
+        }
+      } finally {
+        try {
+          result.dispose();
+        } catch {
+        }
+      }
+
+      drainPendingJobs(qjsRuntime);
+    });
   } catch {
     send({ type: 'error', message: 'VM_EXEC_FAILED' });
+  }
+}
+
+function disposeHostRuntime(): void {
+  const rt = hostRuntime;
+  hostRuntime = null;
+  if (!rt) return;
+
+  for (const handle of rt.menuClickHandlers.values()) {
+    try {
+      handle.dispose();
+    } catch {
+    }
+  }
+  rt.menuClickHandlers.clear();
+
+  try {
+    rt.context.dispose();
+  } catch {
+  }
+  try {
+    rt.runtime.dispose();
+  } catch {
   }
 }
 
@@ -226,6 +370,7 @@ process.on('message', (raw: unknown) => {
   if (!isObjectRecord(raw)) return;
   const type = raw.type;
   if (type === 'shutdown') {
+    disposeHostRuntime();
     process.exit(0);
   }
   if (type === 'load') {

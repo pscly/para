@@ -61,7 +61,13 @@ export const TEST_IDS = {
   pluginsStatus: 'plugins-status',
   pluginsError: 'plugins-error',
   pluginsMenuList: 'plugins-menu-list',
-  pluginsMenuItem: 'plugins-menu-item'
+  pluginsMenuItem: 'plugins-menu-item',
+
+  updateCard: 'update-card',
+  updateCheck: 'update-check',
+  updateDownload: 'update-download',
+  updateInstall: 'update-install',
+  updateStatus: 'update-status'
 } as const;
 
 export type TestIdKey = keyof typeof TEST_IDS;

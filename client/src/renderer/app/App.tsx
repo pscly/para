@@ -23,15 +23,13 @@ type KnowledgeMaterial = {
 
 type VisionPrivacyMode = 'strict' | 'standard';
 
-type GalleryItemStatus = 'pending' | 'completed' | 'failed';
+type GalleryItemStatus = 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
 
 type GalleryItem = {
   id: string;
   status: GalleryItemStatus | string;
   created_at: string;
   prompt: string;
-  thumb_data_url?: string | null;
-  image_data_url?: string | null;
 };
 
 type TimelineEventItem = {
@@ -83,10 +81,71 @@ type PluginStatus = {
   lastError: string | null;
 };
 
+type UpdatePhase =
+  | 'disabled'
+  | 'idle'
+  | 'checking'
+  | 'available'
+  | 'not-available'
+  | 'downloading'
+  | 'downloaded'
+  | 'installing'
+  | 'installed'
+  | 'error';
+
+type UpdateState = {
+  enabled: boolean;
+  phase: UpdatePhase | string;
+  currentVersion: string;
+  availableVersion: string | null;
+  progress: { percent: number; transferred: number; total: number; bytesPerSecond: number } | null;
+  error: string | null;
+  lastCheckedAt: string | null;
+  allowDowngrade: boolean;
+  source: 'real' | 'fake' | 'none' | string;
+};
+
 type DesktopApiExt = NonNullable<Window['desktopApi']>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
+}
+
+function isBlobUrl(url: string): boolean {
+  return url.startsWith('blob:');
+}
+
+function bytesToPngDataUrl(bytes: Uint8Array): string {
+  const chunkSize = 0x8000;
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    const chunk = bytes.subarray(i, i + chunkSize);
+    let part = '';
+    for (let j = 0; j < chunk.length; j += 1) {
+      part += String.fromCharCode(chunk[j] ?? 0);
+    }
+    binary += part;
+  }
+  const b64 = window.btoa(binary);
+  return `data:image/png;base64,${b64}`;
+}
+
+function bytesToImageUrl(bytes: Uint8Array): string {
+  try {
+    let ab: ArrayBuffer;
+    if (bytes.buffer instanceof ArrayBuffer) {
+      ab = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    } else {
+      const copy = new Uint8Array(bytes.byteLength);
+      copy.set(bytes);
+      ab = copy.buffer;
+    }
+
+    const blobUrl = URL.createObjectURL(new Blob([ab as any], { type: 'image/png' }));
+    if (typeof blobUrl === 'string' && blobUrl.trim() !== '') return blobUrl;
+  } catch {
+  }
+  return bytesToPngDataUrl(bytes);
 }
 
 function getUnsubscribe(ret: unknown): (() => void) | null {
@@ -144,6 +203,29 @@ function toStatusLabel(status: unknown): string {
   return '未连接';
 }
 
+function toUpdatePhaseLabel(phase: unknown): string {
+  if (typeof phase !== 'string') return '未知';
+  if (phase === 'disabled') return '未启用';
+  if (phase === 'idle') return '空闲';
+  if (phase === 'checking') return '检查中…';
+  if (phase === 'available') return '发现更新';
+  if (phase === 'not-available') return '已是最新';
+  if (phase === 'downloading') return '下载中…';
+  if (phase === 'downloaded') return '已下载';
+  if (phase === 'installing') return '安装中…';
+  if (phase === 'installed') return '已安装';
+  if (phase === 'error') return '错误';
+  return phase;
+}
+
+function clampPercent(value: unknown): number {
+  const n = typeof value === 'number' ? value : 0;
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 100) return 100;
+  return n;
+}
+
 function newClientRequestId(): string {
   const uuid = window.crypto?.randomUUID?.();
   if (typeof uuid === 'string' && uuid) return uuid;
@@ -192,6 +274,9 @@ export function App() {
   const [galleryItems, setGalleryItems] = React.useState<GalleryItem[]>([]);
   const [galleryBusy, setGalleryBusy] = React.useState(false);
   const [galleryUiError, setGalleryUiError] = React.useState('');
+  const [galleryImageUrls, setGalleryImageUrls] = React.useState<Record<string, string>>({});
+  const galleryImageUrlsRef = React.useRef<Record<string, string>>({});
+  const galleryImageLoadingRef = React.useRef<Set<string>>(new Set());
 
   const [timelineItems, setTimelineItems] = React.useState<TimelineEventItem[]>([]);
   const [timelineBusy, setTimelineBusy] = React.useState(false);
@@ -215,6 +300,10 @@ export function App() {
   const [pluginsUiError, setPluginsUiError] = React.useState('');
   const [pluginsConsentOpen, setPluginsConsentOpen] = React.useState(false);
 
+  const [updateState, setUpdateState] = React.useState<UpdateState | null>(null);
+  const [updateUiError, setUpdateUiError] = React.useState('');
+  const [updateBusy, setUpdateBusy] = React.useState(false);
+
   const socialSeenEventIdsRef = React.useRef<Set<string>>(new Set());
 
   const galleryPollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -235,6 +324,112 @@ export function App() {
       .then((status) => setPluginsStatus(status ?? null))
       .catch(() => {});
   }, []);
+
+  React.useEffect(() => {
+    const update = window.desktopApi?.update;
+    if (!update) return;
+
+    void update
+      .getState()
+      .then((s) => setUpdateState(s as any))
+      .catch(() => {});
+
+    let unsub: (() => void) | null = null;
+    try {
+      unsub = getUnsubscribe(update.onState((s) => setUpdateState(s as any)));
+    } catch {
+      unsub = null;
+    }
+
+    return () => {
+      try {
+        unsub?.();
+      } catch {
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    galleryImageUrlsRef.current = galleryImageUrls;
+  }, [galleryImageUrls]);
+
+  React.useEffect(() => {
+    return () => {
+      for (const url of Object.values(galleryImageUrlsRef.current)) {
+        try {
+          if (isBlobUrl(url)) URL.revokeObjectURL(url);
+        } catch {
+        }
+      }
+    };
+  }, []);
+
+  React.useEffect(() => {
+    const keep = new Set(
+      galleryItems
+        .filter((it) => String(it.status) === 'completed')
+        .map((it) => it.id),
+    );
+
+    setGalleryImageUrls((prev) => {
+      const next: Record<string, string> = {};
+      for (const [id, url] of Object.entries(prev)) {
+        if (keep.has(id)) next[id] = url;
+        else {
+          try {
+            if (isBlobUrl(url)) URL.revokeObjectURL(url);
+          } catch {
+          }
+        }
+      }
+      return next;
+    });
+  }, [galleryItems]);
+
+  React.useEffect(() => {
+    const gallery = window.desktopApi?.gallery;
+    if (!gallery) return;
+
+    const completed = galleryItems.filter((it) => String(it.status) === 'completed');
+    const toFetch = completed
+      .map((it) => it.id)
+      .filter((id) => !(id in galleryImageUrlsRef.current) && !galleryImageLoadingRef.current.has(id));
+
+    if (toFetch.length === 0) return;
+
+    for (const id of toFetch) galleryImageLoadingRef.current.add(id);
+
+    void (async () => {
+      const fresh: Record<string, string> = {};
+
+      for (const id of toFetch) {
+        try {
+          let buf: ArrayBuffer;
+          try {
+            buf = await gallery.download({ galleryId: id, kind: 'thumb' });
+          } catch {
+            buf = await gallery.download({ galleryId: id, kind: 'image' });
+          }
+
+          let u8: Uint8Array;
+          try {
+            u8 = new Uint8Array(buf);
+          } catch {
+            u8 = new Uint8Array(0);
+          }
+          if (u8.byteLength === 0) continue;
+          fresh[id] = bytesToImageUrl(u8);
+        } catch {
+        } finally {
+          galleryImageLoadingRef.current.delete(id);
+        }
+      }
+
+      if (Object.keys(fresh).length > 0) {
+        setGalleryImageUrls((prev) => ({ ...prev, ...fresh }));
+      }
+    })();
+  }, [galleryItems]);
 
   React.useEffect(() => {
     const ws = window.desktopApi?.ws;
@@ -371,6 +566,9 @@ export function App() {
     const code = getErrorCode(err);
     if (code.includes('BAD_CREDENTIALS')) return '邮箱或密码错误';
     if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('SAFE_STORAGE_UNAVAILABLE')) {
+      return '本机安全存储不可用，无法安全保存登录态（已禁止明文保存 token）。请先修复系统密钥环/凭据服务或更换到受支持的桌面环境后重试。';
+    }
     return '登录失败';
   }
 
@@ -465,8 +663,10 @@ export function App() {
 
   function toGalleryStatusLabel(status: unknown): string {
     if (status === 'pending') return '生成中';
+    if (status === 'running') return '生成中';
     if (status === 'completed') return '已完成';
     if (status === 'failed') return '失败';
+    if (status === 'canceled') return '已取消';
     if (typeof status === 'string' && status.trim() !== '') return status;
     return 'unknown';
   }
@@ -917,8 +1117,11 @@ export function App() {
   }, [activeSaveId]);
 
   React.useEffect(() => {
-    const hasPending = galleryItems.some((it) => String(it.status) === 'pending');
-    if (!hasPending) {
+    const hasInFlight = galleryItems.some((it) => {
+      const s = String(it.status);
+      return s === 'pending' || s === 'running';
+    });
+    if (!hasInFlight) {
       if (galleryPollTimerRef.current) {
         clearInterval(galleryPollTimerRef.current);
         galleryPollTimerRef.current = null;
@@ -1372,6 +1575,63 @@ export function App() {
     }
   }
 
+  async function onUpdateCheck() {
+    const update = window.desktopApi?.update;
+    if (!update) {
+      setUpdateUiError('更新接口不可用');
+      return;
+    }
+
+    setUpdateBusy(true);
+    setUpdateUiError('');
+    try {
+      const s = (await update.check()) as any;
+      setUpdateState(s as UpdateState);
+    } catch {
+      setUpdateUiError('检查更新失败');
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function onUpdateDownload() {
+    const update = window.desktopApi?.update;
+    if (!update) {
+      setUpdateUiError('更新接口不可用');
+      return;
+    }
+
+    setUpdateBusy(true);
+    setUpdateUiError('');
+    try {
+      const s = (await update.download()) as any;
+      setUpdateState(s as UpdateState);
+    } catch {
+      setUpdateUiError('下载更新失败');
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
+  async function onUpdateInstall() {
+    const update = window.desktopApi?.update;
+    if (!update) {
+      setUpdateUiError('更新接口不可用');
+      return;
+    }
+
+    setUpdateBusy(true);
+    setUpdateUiError('');
+    try {
+      const s = (await update.install()) as any;
+      setUpdateState(s as UpdateState);
+    } catch {
+      setUpdateUiError('安装更新失败');
+    } finally {
+      setUpdateBusy(false);
+    }
+  }
+
   return (
     <div className="app">
       <header className="topbar">
@@ -1451,6 +1711,66 @@ export function App() {
             {lastAiMessage}
           </div>
           {chatMeta ? <div className="meta">{chatMeta}</div> : null}
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.updateCard}>
+          <h2>自动更新（Windows / macOS）</h2>
+          <div className="meta">
+            生产环境默认开启（Windows + macOS）；开发环境默认关闭，可通过环境变量显式开启。建议通过“发布更高 patch 但回退代码”的方式回滚。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row" data-testid={TEST_IDS.updateStatus}>
+            <span className="pill">状态：{toUpdatePhaseLabel(updateState?.phase ?? 'disabled')}</span>
+            <span className="pill">当前：{updateState?.currentVersion ?? 'unknown'}</span>
+            <span className="pill">可用：{updateState?.availableVersion ?? '-'}</span>
+          </div>
+
+          {updateState?.progress ? (
+            <div className="row">
+              <span className="pill">进度：{clampPercent(updateState.progress.percent).toFixed(0)}%</span>
+            </div>
+          ) : null}
+
+          <div style={{ height: 10 }} />
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.updateCheck}
+              onClick={onUpdateCheck}
+              disabled={updateBusy || !updateState?.enabled || updateState.phase === 'checking' || updateState.phase === 'downloading' || updateState.phase === 'installing'}
+            >
+              检查更新
+            </button>
+            <button
+              type="button"
+              data-testid={TEST_IDS.updateDownload}
+              onClick={onUpdateDownload}
+              disabled={
+                updateBusy ||
+                !updateState?.enabled ||
+                updateState.phase !== 'available'
+              }
+            >
+              下载
+            </button>
+            <button
+              type="button"
+              data-testid={TEST_IDS.updateInstall}
+              className="btn-warn"
+              onClick={onUpdateInstall}
+              disabled={updateBusy || !updateState?.enabled || updateState.phase !== 'downloaded'}
+            >
+              安装并重启
+            </button>
+          </div>
+
+          {updateState?.lastCheckedAt ? <div className="meta">上次检查：{updateState.lastCheckedAt}</div> : null}
+          {typeof updateState?.source === 'string' ? <div className="meta">更新源：{updateState.source}</div> : null}
+          {updateState?.allowDowngrade ? <div className="meta">允许降级：已开启（仅测试/紧急）</div> : null}
+
+          {updateUiError ? <div className="danger">{updateUiError}</div> : null}
+          {updateState?.error ? <div className="danger">{updateState.error}</div> : null}
         </section>
 
         <section className="card">
@@ -1615,10 +1935,7 @@ export function App() {
               galleryItems.map((it) => {
                 const statusLabel = toGalleryStatusLabel(it.status);
                 const timeLabel = formatGalleryTime(it.created_at);
-                const imgSrc =
-                  (typeof it.thumb_data_url === 'string' && it.thumb_data_url) ||
-                  (typeof it.image_data_url === 'string' && it.image_data_url) ||
-                  '';
+                const imgSrc = galleryImageUrls[it.id] ?? '';
 
                 return (
                   <div key={it.id} className="gallery-item" data-testid={TEST_IDS.galleryItem}>
@@ -1635,7 +1952,11 @@ export function App() {
                       <img className="gallery-img" src={imgSrc} alt={it.prompt || it.id} loading="lazy" />
                     ) : (
                       <div className="gallery-placeholder">
-                        {String(it.status) === 'failed' ? '生成失败' : '等待生成…'}
+                        {String(it.status) === 'failed'
+                          ? '生成失败'
+                          : String(it.status) === 'canceled'
+                            ? '已取消'
+                            : '等待生成…'}
                       </div>
                     )}
                   </div>

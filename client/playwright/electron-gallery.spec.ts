@@ -23,12 +23,12 @@ type StubGalleryItem = {
   saveId: string;
   prompt: string;
   createdAt: number;
-  status: 'pending' | 'completed' | 'failed';
+  status: 'pending' | 'running' | 'completed' | 'failed' | 'canceled';
 };
 
 const ONE_BY_ONE_PNG_BASE64 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMB/ekv7bYAAAAASUVORK5CYII=';
-const ONE_BY_ONE_PNG_DATA_URL = `data:image/png;base64,${ONE_BY_ONE_PNG_BASE64}`;
+const ONE_BY_ONE_PNG_BYTES = Buffer.from(ONE_BY_ONE_PNG_BASE64, 'base64');
 
 async function startGalleryStubServer(): Promise<StubServer> {
   const items: StubGalleryItem[] = [];
@@ -78,6 +78,13 @@ async function startGalleryStubServer(): Promise<StubServer> {
         const found = items.find((x) => x.id === id);
         if (!found) return;
         if (found.status !== 'pending') return;
+        found.status = 'running';
+      }, 250);
+
+      setTimeout(() => {
+        const found = items.find((x) => x.id === id);
+        if (!found) return;
+        if (found.status !== 'running') return;
         found.status = 'completed';
       }, 650);
 
@@ -92,8 +99,49 @@ async function startGalleryStubServer(): Promise<StubServer> {
       return;
     }
 
+    if (req.method === 'GET' && url.startsWith('/api/v1/gallery/items/') && url.includes('/download')) {
+      const u = new URL(`http://stub${url}`);
+      const parts = u.pathname.split('/').filter(Boolean);
+
+      const itemsIdx = parts.indexOf('items');
+      const galleryId = itemsIdx >= 0 && parts.length > itemsIdx + 2 && parts[itemsIdx + 2] === 'download'
+        ? parts[itemsIdx + 1] ?? ''
+        : '';
+      const kind = (u.searchParams.get('kind') ?? '').toLowerCase();
+      if (!galleryId) {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'not found' }));
+        return;
+      }
+      if (kind !== 'thumb' && kind !== 'image') {
+        res.writeHead(422, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'Invalid kind' }));
+        return;
+      }
+
+      const item = items.find((x) => x.id === galleryId);
+      if (!item || item.status !== 'completed') {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'not found' }));
+        return;
+      }
+
+      res.writeHead(200, {
+        'Content-Type': 'image/png',
+        'Content-Disposition': `inline; filename="gallery-${galleryId}-${kind}.png"`
+      });
+      res.end(ONE_BY_ONE_PNG_BYTES);
+      return;
+    }
+
     if (req.method === 'GET' && url.startsWith('/api/v1/gallery/items')) {
       const u = new URL(`http://stub${url}`);
+      if (u.pathname !== '/api/v1/gallery/items') {
+        res.writeHead(404, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ detail: 'not found' }));
+        return;
+      }
+
       const saveId = u.searchParams.get('save_id') ?? '';
       const filtered = items.filter((it) => it.saveId === saveId);
 
@@ -104,9 +152,7 @@ async function startGalleryStubServer(): Promise<StubServer> {
             id: it.id,
             status: it.status,
             created_at: new Date(it.createdAt).toISOString(),
-            prompt: it.prompt,
-            thumb_data_url: it.status === 'completed' ? ONE_BY_ONE_PNG_DATA_URL : null,
-            image_data_url: it.status === 'completed' ? ONE_BY_ONE_PNG_DATA_URL : null
+            prompt: it.prompt
           })),
         ),
       );
@@ -235,11 +281,96 @@ test('Task 17: generative gallery -> pending -> completed (with evidence screens
       const masonry = page.getByTestId(TEST_IDS.galleryMasonry);
       await expect(masonry).toBeVisible();
 
-      await expect(masonry.getByTestId(TEST_IDS.galleryItem)).toHaveCount(1);
+      await expect(masonry.getByTestId(TEST_IDS.galleryItem)).toHaveCount(1, { timeout: 15_000 });
 
-      const img = masonry.locator('img.gallery-img');
-      await expect(img).toHaveCount(1);
-      await expect(img.first()).toBeVisible();
+      const firstItem = masonry.getByTestId(TEST_IDS.galleryItem).first();
+      const pill = firstItem.locator('.pill').first();
+      await expect(pill).toBeVisible({ timeout: 15_000 });
+
+      await expect
+        .poll(
+          async () => {
+            const t = await pill.textContent();
+            return String(t ?? '').trim();
+          },
+          { timeout: 15_000 },
+        )
+        .not.toBe('生成中');
+
+      await expect(pill).toHaveText('已完成', { timeout: 15_000 });
+
+      const downloadDiag = await page.evaluate(async () => {
+        const api = (window as unknown as { desktopApi?: any }).desktopApi;
+        if (!api || !api.gallery) {
+          return {
+            id: '',
+            ctorName: 'desktopApi_missing',
+            isArrayBuffer: false,
+            isUint8Array: false,
+            canUint8Array: false,
+            byteLength: 0
+          };
+        }
+
+        const list = await api.gallery.list('default');
+        const first = Array.isArray(list) ? list[0] : null;
+        const id = first && typeof first.id === 'string' ? first.id : '';
+        if (!id) {
+          return {
+            id: '',
+            ctorName: 'id_missing',
+            isArrayBuffer: false,
+            isUint8Array: false,
+            canUint8Array: false,
+            byteLength: 0
+          };
+        }
+
+        const bytes = await api.gallery.download({ galleryId: id, kind: 'thumb' });
+        const ctorName = bytes && (bytes as any).constructor ? String((bytes as any).constructor.name ?? 'unknown') : 'unknown';
+
+        const isArrayBuffer = bytes instanceof ArrayBuffer;
+        const isUint8Array = bytes instanceof Uint8Array;
+
+        let byteLength = 0;
+        if (isArrayBuffer) {
+          byteLength = bytes.byteLength;
+        } else if (bytes && typeof (bytes as any).byteLength === 'number') {
+          byteLength = (bytes as any).byteLength as number;
+        } else if (bytes && typeof (bytes as any).length === 'number') {
+          byteLength = (bytes as any).length as number;
+        }
+
+        let canUint8Array = false;
+        try {
+          const u8 = new Uint8Array(bytes);
+          canUint8Array = u8.byteLength > 0;
+        } catch {
+          canUint8Array = false;
+        }
+
+        return { id, ctorName, isArrayBuffer, isUint8Array, canUint8Array, byteLength };
+      });
+
+      const diag = `ctorName=${downloadDiag.ctorName} isArrayBuffer=${downloadDiag.isArrayBuffer} isUint8Array=${downloadDiag.isUint8Array} canUint8Array=${downloadDiag.canUint8Array} byteLength=${downloadDiag.byteLength}`;
+      expect(
+        downloadDiag.id,
+        `gallery.list() returned empty id (${diag})`,
+      ).not.toBe('');
+
+      expect(
+        downloadDiag.isArrayBuffer || downloadDiag.isUint8Array || downloadDiag.canUint8Array,
+        `gallery.download() returned non-binary-like value (id=${downloadDiag.id || '(empty)'} ${diag})`,
+      ).toBeTruthy();
+
+      expect(
+        downloadDiag.byteLength,
+        `gallery.download() returned empty bytes (id=${downloadDiag.id || '(empty)'} ${diag})`,
+      ).toBeGreaterThan(0);
+
+      const img = firstItem.locator('img.gallery-img');
+      await expect(img).toHaveCount(1, { timeout: 15_000 });
+      await expect(img.first()).toBeVisible({ timeout: 15_000 });
 
       const evidencePath = getEvidencePath('task-17-gallery.png');
       await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });

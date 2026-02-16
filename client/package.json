@@ -1,7 +1,7 @@
 {
   "name": "ai-girlfriend-client",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "description": "Electron + React + TS client scaffold",
   "main": "dist/main/index.js",
   "scripts": {
@@ -15,14 +15,25 @@
     "test": "vitest run",
     "e2e": "node scripts/run-e2e.mjs",
     "lint": "tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit",
-    "gen:api": "node -e \"require('fs').mkdirSync('src/gen',{recursive:true})\" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts"
+    "gen:api": "node -e \"require('fs').mkdirSync('src/gen',{recursive:true})\" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts",
+    "package": "npm run build && electron-builder",
+    "package:linux": "npm run build && electron-builder --linux dir",
+    "package:linux:dist": "npm run build && electron-builder --linux",
+    "package:mac": "npm run build && electron-builder --mac dmg zip",
+    "package:win": "npm run build && electron-builder --win nsis",
+    "package:win:dir": "npm run build && electron-builder --win dir",
+    "verify:fuses": "node scripts/verify-fuses.js",
+    "verify:fuses:linux": "node scripts/verify-fuses.js --platform linux --appOutDir dist-electron/linux-unpacked"
   },
   "dependencies": {
+    "electron-updater": "^6.3.0",
+    "quickjs-emscripten": "^0.31.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@electron/fuses": "^1.8.0",
     "@playwright/test": "^1.50.1",
     "@testing-library/jest-dom": "^6.4.6",
     "@testing-library/react": "^16.0.1",
@@ -32,6 +43,7 @@
     "@vitejs/plugin-react": "^4.3.4",
     "concurrently": "^9.1.0",
     "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
     "jsdom": "^25.0.1",
     "nodemon": "^3.1.7",
     "openapi-typescript": "^7.6.1",
@@ -41,5 +53,53 @@
     "vite": "^6.0.3",
     "vitest": "^2.1.5",
     "wait-on": "^7.2.0"
+  },
+  "build": {
+    "appId": "com.pscly.para",
+    "productName": "Para Desktop",
+    "asar": true,
+    "afterPack": "scripts/afterPack-fuses.cjs",
+    "publish": [],
+    "directories": {
+      "output": "dist-electron"
+    },
+    "files": [
+      "dist/**",
+      "package.json",
+      "!**/playwright{,/**}",
+      "!**/playwright-results{,/**}",
+      "!**/tests{,/**}",
+      "!**/*.map"
+    ],
+    "linux": {
+      "target": [
+        "dir",
+        "AppImage",
+        "deb",
+        "rpm"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.utilities",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.inherit.plist"
+    },
+    "win": {
+      "target": [
+        "nsis",
+        "dir"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }
