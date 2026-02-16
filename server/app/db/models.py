@@ -343,6 +343,8 @@ class MemoryEmbedding(Base):
         primary_key=True,
         nullable=False,
     )
+    # 冗余 save_id：便于按 save_id 过滤并配合 pgvector ANN 索引做 KNN 查询。
+    save_id: Mapped[str] = mapped_column(String(36), index=True, nullable=False)
     embedding_model: Mapped[str] = mapped_column(
         String(50), default="local-hash-v1", nullable=False
     )
