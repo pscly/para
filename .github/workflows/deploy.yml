@@ -30,10 +30,19 @@ jobs:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
 
-      - name: Setup ssh-agent
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSHKEY }}
+      - name: Write deploy SSH key file
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${RUNNER_TEMP:?RUNNER_TEMP 未设置}"
+          key_file="${RUNNER_TEMP}/deploy_ssh_key"
+          mkdir -p "$(dirname "$key_file")"
+          # 用 heredoc 写入，避免 echo/printf 破坏私钥换行；严禁在日志中输出私钥内容。
+          cat > "$key_file" <<'EOF'
+          ${{ secrets.SSHKEY }}
+          EOF
+          chmod 600 "$key_file"
+          echo "DEPLOY_KEY_FILE=$key_file" >> "$GITHUB_ENV"
 
       - name: Add SSH known_hosts (pscly.cc)
         shell: bash
@@ -69,8 +78,13 @@ jobs:
         run: |
           set -euo pipefail
           TARBALL="${RUNNER_TEMP:-/tmp}/release-${DEPLOY_SHA}.tgz"
-          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "mkdir -p /root/dockers/para/releases"
-          scp -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "$TARBALL" "root@pscly.cc:/root/dockers/para/releases/${DEPLOY_SHA}.tgz"
+          # 最小诊断：仅输出 runner 公网 IP，便于服务器侧对照 SSH 日志。
+          RUNNER_PUBLIC_IP="$( (curl -fsS https://api.ipify.org || curl -fsS https://ifconfig.me/ip) 2>/dev/null || true )"
+          if [ -n "$RUNNER_PUBLIC_IP" ]; then
+            echo "$RUNNER_PUBLIC_IP"
+          fi
+          ssh -i "$DEPLOY_KEY_FILE" -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "mkdir -p /root/dockers/para/releases"
+          scp -i "$DEPLOY_KEY_FILE" -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes "$TARBALL" "root@pscly.cc:/root/dockers/para/releases/${DEPLOY_SHA}.tgz"
 
       - name: Remote deploy
         shell: bash
@@ -78,7 +92,7 @@ jobs:
           DEPLOY_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
-          ssh -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "bash -s -- ${DEPLOY_SHA}" < deploy/prod/remote_deploy.sh
+          ssh -i "$DEPLOY_KEY_FILE" -o BatchMode=yes -o StrictHostKeyChecking=yes -o IdentitiesOnly=yes root@pscly.cc "bash -s -- ${DEPLOY_SHA}" < deploy/prod/remote_deploy.sh
 
       - name: Smoke test (public)
         shell: bash
