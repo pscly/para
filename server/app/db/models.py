@@ -670,6 +670,77 @@ class AdminKV(Base):
     )
 
 
+class InviteCode(Base):
+    __tablename__: str = "invite_codes"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("code_hash", name="uq_invite_codes_code_hash"),
+        CheckConstraint("max_uses >= 1", name="ck_invite_codes_max_uses_ge_1"),
+        CheckConstraint("uses_count >= 0", name="ck_invite_codes_uses_count_ge_0"),
+        CheckConstraint(
+            "uses_count <= max_uses",
+            name="ck_invite_codes_uses_count_le_max_uses",
+        ),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    # 只存 hash 与 prefix：创建时回显明文 code，之后不可再取回。
+    code_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    code_prefix: Mapped[str] = mapped_column(String(12), nullable=False, index=True)
+
+    max_uses: Mapped[int] = mapped_column(Integer(), nullable=False, default=1)
+    uses_count: Mapped[int] = mapped_column(Integer(), nullable=False, default=0)
+
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(), nullable=True, index=True)
+
+    created_by_admin_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("admin_users.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    redemptions: Mapped[list["InviteRedemption"]] = relationship(
+        "InviteRedemption",
+        back_populates="invite",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+
+
+class InviteRedemption(Base):
+    __tablename__: str = "invite_redemptions"
+    __table_args__: tuple[object, ...] = (
+        UniqueConstraint("invite_id", "user_id", name="uq_invite_redemptions_invite_user"),
+    )
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
+
+    invite_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("invite_codes.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(36),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        index=True,
+        nullable=False,
+    )
+    user_email: Mapped[str] = mapped_column(String(320), nullable=False)
+    used_at: Mapped[datetime] = mapped_column(DateTime(), default=datetime.utcnow, nullable=False)
+
+    invite: Mapped[InviteCode] = relationship("InviteCode", back_populates="redemptions")
+
+
 class AdminLLMChannel(Base):
     __tablename__: str = "admin_llm_channels"
     __table_args__: tuple[object, ...] = (

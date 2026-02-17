@@ -109,6 +109,58 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/invites": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Invites List */
+        get: operations["admin_invites_list"];
+        put?: never;
+        /** Admin Invites Create */
+        post: operations["admin_invites_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invites/{invite_id}/redemptions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Invites Redemptions List */
+        get: operations["admin_invites_redemptions_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/invites/{invite_id}:revoke": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Admin Invites Revoke */
+        post: operations["admin_invites_revoke"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/llm/channels": {
         parameters: {
             query?: never;
@@ -985,6 +1037,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ugc/assets/{asset_id}/download": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Ugc Asset Download */
+        get: operations["ugc_asset_download"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1178,6 +1247,88 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "degraded";
+        };
+        /** InviteCodeCreateRequest */
+        InviteCodeCreateRequest: {
+            /** Expires At */
+            expires_at?: string | null;
+            /**
+             * Max Uses
+             * @default 1
+             */
+            max_uses: number;
+        };
+        /** InviteCodeCreateResponse */
+        InviteCodeCreateResponse: {
+            /** Code */
+            code: string;
+            /** Code Prefix */
+            code_prefix: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Max Uses */
+            max_uses: number;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Uses Count */
+            uses_count: number;
+        };
+        /** InviteCodeListItem */
+        InviteCodeListItem: {
+            /** Code Prefix */
+            code_prefix: string;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Expires At */
+            expires_at: string | null;
+            /** Id */
+            id: string;
+            /** Max Uses */
+            max_uses: number;
+            /** Revoked At */
+            revoked_at: string | null;
+            /** Uses Count */
+            uses_count: number;
+        };
+        /** InviteCodeListResponse */
+        InviteCodeListResponse: {
+            /** Items */
+            items?: components["schemas"]["InviteCodeListItem"][];
+            /** Next Offset */
+            next_offset?: number | null;
+        };
+        /** InviteRedemptionListItem */
+        InviteRedemptionListItem: {
+            /** Id */
+            id: string;
+            /** Invite Id */
+            invite_id: string;
+            /**
+             * Used At
+             * Format: date-time
+             */
+            used_at: string;
+            /** User Email */
+            user_email: string;
+            /** User Id */
+            user_id: string;
+        };
+        /** InviteRedemptionListResponse */
+        InviteRedemptionListResponse: {
+            /** Items */
+            items?: components["schemas"]["InviteRedemptionListItem"][];
+            /** Next Offset */
+            next_offset?: number | null;
         };
         /** KnowledgeCitation */
         KnowledgeCitation: {
@@ -1625,6 +1776,11 @@ export interface components {
              * @example user@example.com
              */
             email: string;
+            /**
+             * Invite Code
+             * @example ABCDEFGH1234
+             */
+            invite_code?: string | null;
             /**
              * Password
              * @example password123
@@ -2221,6 +2377,136 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_invites_list: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteCodeListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_invites_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InviteCodeCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteCodeCreateResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_invites_redemptions_list: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteRedemptionListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_invites_revoke: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                invite_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InviteCodeListItem"];
                 };
             };
             /** @description Validation Error */
@@ -4085,6 +4371,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["UgcAssetOut"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    ugc_asset_download: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asset_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Asset bytes */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                    "application/octet-stream": unknown;
                 };
             };
             /** @description Validation Error */

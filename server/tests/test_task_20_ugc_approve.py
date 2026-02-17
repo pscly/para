@@ -81,6 +81,11 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
         access = tokens["access_token"]
         headers = {"Authorization": f"Bearer {access}"}
 
+        other_email = _random_email()
+        other_tokens = _register(client, email=other_email, password=password)
+        other_access = other_tokens["access_token"]
+        other_headers = {"Authorization": f"Bearer {other_access}"}
+
         admin_pw = f"pw-{uuid.uuid4().hex}"
         admin = _create_admin(role="super_admin", password=admin_pw)
         admin_token = _admin_login(client, email=admin.email, password=admin_pw)
@@ -114,6 +119,15 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
         assert isinstance(asset_id, str) and asset_id
         assert upload_body.get("status") == "pending"
 
+        dl_self_pending = client.get(f"/api/v1/ugc/assets/{asset_id}/download", headers=headers)
+        assert dl_self_pending.status_code == 200, dl_self_pending.text
+        assert dl_self_pending.content == b"hello ugc"
+
+        dl_other_pending = client.get(
+            f"/api/v1/ugc/assets/{asset_id}/download", headers=other_headers
+        )
+        assert dl_other_pending.status_code == 403, dl_other_pending.text
+
         approve_resp = client.post(
             f"/api/v1/admin/review/ugc/{asset_id}:approve",
             headers=admin_headers,
@@ -122,6 +136,12 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
         approve_body = cast(dict[str, object], approve_resp.json())
         assert approve_body.get("asset_id") == asset_id
         assert approve_body.get("status") == "approved"
+
+        dl_other_approved = client.get(
+            f"/api/v1/ugc/assets/{asset_id}/download", headers=other_headers
+        )
+        assert dl_other_approved.status_code == 200, dl_other_approved.text
+        assert dl_other_approved.content == b"hello ugc"
 
         list_resp = client.get("/api/v1/ugc/assets?status=approved", headers=headers)
         assert list_resp.status_code == 200, list_resp.text
@@ -152,8 +172,11 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
             f"asset_id={asset_id}",
             f"upload_status={upload_resp.status_code}",
             f"upload_body={upload_body}",
+            f"download_self_pending_status={dl_self_pending.status_code}",
+            f"download_other_pending_status={dl_other_pending.status_code}",
             f"approve_status={approve_resp.status_code}",
             f"approve_body={approve_body}",
+            f"download_other_approved_status={dl_other_approved.status_code}",
             f"list_status={list_resp.status_code}",
             f"list_body={list_body}",
             "assert_client_list_contains_asset=True",

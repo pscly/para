@@ -19,11 +19,15 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "KNOWLEDGE_EMBEDDING_PROVIDER",
         "OPENAI_BASE_URL",
         "OPENAI_API_KEY",
+        "PARA_APPENC_ENABLED",
+        "PARA_APPENC_KEYS",
+        "PARA_APPENC_TS_WINDOW_SEC",
     ]:
         monkeypatch.delenv(key, raising=False)
 
 
 _TEST_ADMIN_SECRETS_MASTER_KEY_B64URL = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY"
+_TEST_PARA_APPENC_KEYS = f"k1:{_TEST_ADMIN_SECRETS_MASTER_KEY_B64URL}"
 
 
 def test_prod_default_placeholders_fail(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -45,6 +49,8 @@ def test_prod_missing_admin_review_secret_ok(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setenv("AUTH_ACCESS_TOKEN_SECRET", "auth-secret-set-in-prod-0123456789")
     monkeypatch.setenv("ADMIN_ACCESS_TOKEN_SECRET", "admin-secret-set-in-prod-0123456789")
     monkeypatch.setenv("ADMIN_SECRETS_MASTER_KEY", _TEST_ADMIN_SECRETS_MASTER_KEY_B64URL)
+    monkeypatch.setenv("PARA_APPENC_ENABLED", "1")
+    monkeypatch.setenv("PARA_APPENC_KEYS", _TEST_PARA_APPENC_KEYS)
     monkeypatch.setenv("OPENAI_MODE", "openai")
     monkeypatch.setenv("KNOWLEDGE_EMBEDDING_PROVIDER", "openai")
     monkeypatch.setenv("OPENAI_BASE_URL", "https://localhost/v1")
@@ -64,6 +70,8 @@ def test_prod_all_secrets_ok(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_ACCESS_TOKEN_SECRET", "auth-secret-set-in-prod-0123456789")
     monkeypatch.setenv("ADMIN_ACCESS_TOKEN_SECRET", "admin-secret-set-in-prod-0123456789")
     monkeypatch.setenv("ADMIN_SECRETS_MASTER_KEY", _TEST_ADMIN_SECRETS_MASTER_KEY_B64URL)
+    monkeypatch.setenv("PARA_APPENC_ENABLED", "1")
+    monkeypatch.setenv("PARA_APPENC_KEYS", _TEST_PARA_APPENC_KEYS)
     monkeypatch.setenv("ADMIN_REVIEW_SECRET", "review-secret-set-in-prod-0123456789")
     monkeypatch.setenv("OPENAI_MODE", "openai")
     monkeypatch.setenv("KNOWLEDGE_EMBEDDING_PROVIDER", "openai")
@@ -103,6 +111,40 @@ def test_prod_forbids_local_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
         _ = Settings()
     msg = str(excinfo.value)
     assert "KNOWLEDGE_EMBEDDING_PROVIDER=local" in msg
+
+
+def test_prod_requires_appenc_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("AUTH_ACCESS_TOKEN_SECRET", "auth-secret-set-in-prod-0123456789")
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_SECRET", "admin-secret-set-in-prod-0123456789")
+    monkeypatch.setenv("ADMIN_SECRETS_MASTER_KEY", _TEST_ADMIN_SECRETS_MASTER_KEY_B64URL)
+    monkeypatch.setenv("OPENAI_MODE", "openai")
+    monkeypatch.setenv("KNOWLEDGE_EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://localhost/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "not-a-real-key")
+
+    with pytest.raises(Exception) as excinfo:
+        _ = Settings()
+    assert "PARA_APPENC_ENABLED=1" in str(excinfo.value)
+
+
+def test_prod_requires_appenc_keys_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_env(monkeypatch)
+    monkeypatch.setenv("ENV", "prod")
+    monkeypatch.setenv("AUTH_ACCESS_TOKEN_SECRET", "auth-secret-set-in-prod-0123456789")
+    monkeypatch.setenv("ADMIN_ACCESS_TOKEN_SECRET", "admin-secret-set-in-prod-0123456789")
+    monkeypatch.setenv("ADMIN_SECRETS_MASTER_KEY", _TEST_ADMIN_SECRETS_MASTER_KEY_B64URL)
+    monkeypatch.setenv("OPENAI_MODE", "openai")
+    monkeypatch.setenv("KNOWLEDGE_EMBEDDING_PROVIDER", "openai")
+    monkeypatch.setenv("OPENAI_BASE_URL", "https://localhost/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "not-a-real-key")
+    monkeypatch.setenv("PARA_APPENC_ENABLED", "1")
+    monkeypatch.setenv("PARA_APPENC_KEYS", "")
+
+    with pytest.raises(Exception) as excinfo:
+        _ = Settings()
+    assert "PARA_APPENC_KEYS" in str(excinfo.value)
 
 
 @pytest.mark.parametrize("env_value", ["dev", "test"])

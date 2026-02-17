@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta
+import hashlib
 from typing import NoReturn
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -29,7 +30,14 @@ from app.core.security import (
     validate_password_policy,
     verify_password,
 )
-from app.db.models import Device, PasswordResetToken, RefreshToken, User
+from app.db.models import (
+    Device,
+    InviteCode,
+    InviteRedemption,
+    PasswordResetToken,
+    RefreshToken,
+    User,
+)
 from app.db.session import get_db
 from app.services.auth_rate_limit import AuthRateLimiter, auth_rate_limit_key
 
@@ -42,6 +50,7 @@ _bearer_scheme = HTTPBearer(auto_error=False)
 class RegisterRequest(BaseModel):
     email: str = Field(..., examples=["user@example.com"])
     password: str = Field(..., min_length=8, examples=["password123"])
+    invite_code: str | None = Field(None, examples=["ABCDEFGH1234"])
 
 
 class LoginRequest(BaseModel):
@@ -182,6 +191,49 @@ async def register(
             detail="Password does not meet security requirements",
         )
 
+    invite_raw = (payload.invite_code or "").strip()
+    invite_required = settings.env.strip().lower() in ("prod", "production")
+    if invite_required and invite_raw == "":
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="invite_code_required",
+        )
+
+    now = datetime.utcnow()
+    reserved_invite: InviteCode | None = None
+    if invite_raw != "":
+        invite_hash = hashlib.sha256(invite_raw.encode("utf-8")).hexdigest()
+        reserved_invite = db.execute(
+            select(InviteCode).where(InviteCode.code_hash == invite_hash).with_for_update()
+        ).scalar_one_or_none()
+        if reserved_invite is None:
+            _maybe_record_failure(db, limiter, key=key)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="invite_code_invalid",
+            )
+        if reserved_invite.revoked_at is not None:
+            _maybe_record_failure(db, limiter, key=key)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="invite_code_revoked",
+            )
+        if reserved_invite.expires_at is not None and reserved_invite.expires_at <= now:
+            _maybe_record_failure(db, limiter, key=key)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="invite_code_expired",
+            )
+        if reserved_invite.uses_count >= reserved_invite.max_uses:
+            _maybe_record_failure(db, limiter, key=key)
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="invite_code_exhausted",
+            )
+        reserved_invite.uses_count += 1
+        reserved_invite.updated_at = now
+
     existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if existing is not None:
         _maybe_record_failure(db, limiter, key=key)
@@ -195,6 +247,16 @@ async def register(
         db.rollback()
         _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
+
+    if reserved_invite is not None:
+        db.add(
+            InviteRedemption(
+                invite_id=reserved_invite.id,
+                user_id=user.id,
+                user_email=email,
+                used_at=now,
+            )
+        )
 
     device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
     db.add(device)

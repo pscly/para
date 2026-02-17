@@ -21,7 +21,8 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
 
     configure_logging(s.log_level)
 
-    app = FastAPI(title="para-server", version=get_app_version())
+    app_version = get_app_version()
+    app = FastAPI(title="para-server", version=app_version)
 
     if s.para_appenc_enabled:
         from app.middleware.app_encryption import AppEncryptionMiddleware
@@ -53,6 +54,7 @@ def create_app(app_settings: Settings | None = None) -> FastAPI:
             request_id_ctx_var.reset(token)
 
         response.headers["X-Request-Id"] = rid
+        response.headers["X-Para-Version"] = app_version
         _ = response.headers.setdefault("X-Content-Type-Options", "nosniff")
         _ = response.headers.setdefault("X-Frame-Options", "DENY")
         _ = response.headers.setdefault("Referrer-Policy", "no-referrer")

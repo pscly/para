@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import cast
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -204,3 +205,39 @@ async def ugc_assets_list(
         )
         for a in rows
     ]
+
+
+@router.get(
+    "/assets/{asset_id}/download",
+    operation_id="ugc_asset_download",
+    responses={
+        200: {
+            "content": {"application/octet-stream": {}},
+            "description": "Asset bytes",
+        }
+    },
+)
+async def ugc_asset_download(
+    asset_id: str,
+    db: Session = Depends(get_db),
+    user_id: str = Depends(require_user_id),
+) -> FileResponse:
+    asset = db.get(UgcAsset, asset_id)
+    if asset is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    # Allow public download only after approval; otherwise only the uploader can fetch the bytes.
+    if asset.status != "approved" and asset.uploaded_by_user_id != user_id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+
+    file_path = _server_data_dir() / asset.id / "original"
+    if not file_path.exists() or not file_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+
+    dl_name = f"ugc-{asset.id}.bin"
+    return FileResponse(
+        path=str(file_path),
+        media_type="application/octet-stream",
+        filename=dl_name,
+        headers={"Content-Disposition": f'attachment; filename="{dl_name}"'},
+    )

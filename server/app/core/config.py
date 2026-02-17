@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     model_config: ClassVar[SettingsConfigDict] = SettingsConfigDict(
         env_file=None,
         case_sensitive=False,
+        enable_decoding=False,
         extra="ignore",
     )
 
@@ -127,6 +128,15 @@ class Settings(BaseSettings):
             raw = v.strip()
             if raw == "":
                 return {}
+
+            if raw.lstrip().startswith("{"):
+                try:
+                    parsed: object = cast(object, json.loads(raw))
+                except Exception:
+                    parsed = None
+                if isinstance(parsed, dict):
+                    return cls._parse_appenc_keys_env(cast(dict[object, object], parsed))
+
             parts: list[str] = []
             for chunk in raw.replace("\n", ",").replace("\t", ",").split(","):
                 s = chunk.strip()
@@ -254,6 +264,15 @@ class Settings(BaseSettings):
         if self.admin_secrets_master_key is None:
             problems.append(
                 "ADMIN_SECRETS_MASTER_KEY must be set in production (base64url 32 bytes)."
+            )
+
+        if not self.para_appenc_enabled:
+            problems.append(
+                "PARA_APPENC_ENABLED=1 is required in production (enable app-level encryption)."
+            )
+        elif not self.para_appenc_keys:
+            problems.append(
+                "PARA_APPENC_KEYS must be set in production when PARA_APPENC_ENABLED=1 (format: 'kid:base64url_32bytes[,kid2:...]')."
             )
 
         if problems:

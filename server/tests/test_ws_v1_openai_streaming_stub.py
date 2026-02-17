@@ -7,6 +7,8 @@ import socket
 import threading
 import time
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import cast, override
 
@@ -15,8 +17,12 @@ from fastapi.testclient import TestClient
 from sqlalchemy import text
 from starlette.testclient import WebSocketTestSession
 
+from app.core.admin_secrets import encrypt_secret
+from app.core.config import settings
 from app.db.base import Base
+from app.db.models import AdminKV, AdminLLMChannel
 from app.db.session import engine
+from app.db.session import SessionLocal
 from app.main import app
 
 
@@ -109,6 +115,11 @@ def _free_port() -> int:
 class _StubOpenAIHandler(BaseHTTPRequestHandler):
     protocol_version: str = "HTTP/1.1"
 
+    expected_authorization: str | None = None
+    expected_model: str | None = None
+    last_authorization: str | None = None
+    last_model: str | None = None
+
     @override
     def log_message(self, format: str, *args: object) -> None:  # noqa: A003
         return
@@ -131,7 +142,27 @@ class _StubOpenAIHandler(BaseHTTPRequestHandler):
         return out
 
     def do_POST(self) -> None:  # noqa: N802
+        _StubOpenAIHandler.last_authorization = self.headers.get("Authorization")
         body = self._read_json_body()
+        model_obj = body.get("model")
+        _StubOpenAIHandler.last_model = model_obj if isinstance(model_obj, str) else None
+
+        if (
+            _StubOpenAIHandler.expected_authorization is not None
+            and _StubOpenAIHandler.last_authorization != _StubOpenAIHandler.expected_authorization
+        ):
+            self.send_response(401)
+            self.end_headers()
+            return
+
+        if (
+            _StubOpenAIHandler.expected_model is not None
+            and _StubOpenAIHandler.last_model != _StubOpenAIHandler.expected_model
+        ):
+            self.send_response(400)
+            self.end_headers()
+            return
+
         if self.path in ("/v1/responses", "/responses"):
             if not body.get("stream"):
                 self.send_response(400)
@@ -215,116 +246,221 @@ class _StubServer:
         self._t.join(timeout=2)
 
 
+@contextmanager
+def _admin_chat_channel_routing(
+    *, base_url: str, api_key: str, model: str, timeout_ms: int = 60000
+) -> Iterator[str]:
+    with SessionLocal() as db:
+        old_kv = (
+            db.query(AdminKV)
+            .filter(AdminKV.namespace == "llm_routing", AdminKV.key == "global")
+            .one_or_none()
+        )
+        old_value_json = old_kv.value_json if old_kv is not None else None
+
+        now_key = settings.admin_secrets_master_key_bytes
+        row = AdminLLMChannel(
+            name=f"stub-chat-{uuid.uuid4().hex}",
+            base_url=base_url,
+            api_key_enc=encrypt_secret(api_key, key=now_key),
+            enabled=True,
+            purpose="chat",
+            default_model=model,
+            timeout_ms=int(timeout_ms),
+            weight=100,
+        )
+        db.add(row)
+        db.flush()
+        channel_id = row.id
+
+        obj = {
+            "default_chat_channel_id": channel_id,
+            "default_embedding_channel_id": None,
+        }
+
+        if old_kv is None:
+            db.add(AdminKV(namespace="llm_routing", key="global", value_json=json.dumps(obj)))
+        else:
+            old_kv.value_json = json.dumps(obj)
+
+        db.commit()
+
+    try:
+        yield channel_id
+    finally:
+        with SessionLocal() as db2:
+            try:
+                ch = db2.get(AdminLLMChannel, channel_id)
+                if ch is not None:
+                    db2.delete(ch)
+
+                kv2 = (
+                    db2.query(AdminKV)
+                    .filter(AdminKV.namespace == "llm_routing", AdminKV.key == "global")
+                    .one_or_none()
+                )
+
+                if old_value_json is None:
+                    if kv2 is not None:
+                        db2.delete(kv2)
+                else:
+                    if kv2 is None:
+                        db2.add(
+                            AdminKV(
+                                namespace="llm_routing",
+                                key="global",
+                                value_json=old_value_json,
+                            )
+                        )
+                    else:
+                        kv2.value_json = old_value_json
+
+                db2.commit()
+            except Exception:
+                db2.rollback()
+                raise
+
+
 @pytest.mark.parametrize("api", ["responses", "chat_completions"])
 def test_ws_v1_openai_streaming_stub_emits_tokens_then_done(
     monkeypatch: pytest.MonkeyPatch, api: str
 ) -> None:
     with _StubServer() as stub:
-        monkeypatch.setenv("OPENAI_MODE", "openai")
-        monkeypatch.setenv("OPENAI_BASE_URL", stub.base_url)
-        monkeypatch.setenv("OPENAI_API_KEY", "stub-key")
-        monkeypatch.setenv("OPENAI_MODEL", "stub-model")
-        monkeypatch.setenv("OPENAI_API", api)
+        with _admin_chat_channel_routing(
+            base_url=stub.base_url,
+            api_key="channel-key",
+            model="channel-model",
+        ):
+            _StubOpenAIHandler.expected_authorization = "Bearer channel-key"
+            _StubOpenAIHandler.expected_model = "channel-model"
+            _StubOpenAIHandler.last_authorization = None
+            _StubOpenAIHandler.last_model = None
 
-        email = _random_email()
-        password = "password123"
-        client_request_id = str(uuid.uuid4())
+            monkeypatch.setenv("OPENAI_MODE", "openai")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:1")
+            monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+            monkeypatch.setenv("OPENAI_MODEL", "env-model")
+            monkeypatch.setenv("OPENAI_API", api)
 
-        with TestClient(app) as client:
-            tokens = _register(client, email=email, password=password)
-            access = tokens["access_token"]
+            email = _random_email()
+            password = "password123"
+            client_request_id = str(uuid.uuid4())
 
-            user_id = _get_user_id(client, access_token=access)
-            assert user_id
+            with TestClient(app) as client:
+                tokens = _register(client, email=email, password=password)
+                access = tokens["access_token"]
 
-            headers = {"Authorization": f"Bearer {access}"}
-            save_id = _create_save_id(client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}")
-            url = f"/ws/v1?save_id={save_id}&resume_from=0"
-            with client.websocket_connect(url, headers=headers) as ws:
-                _ = _recv_until_type(ws, "HELLO")
+                user_id = _get_user_id(client, access_token=access)
+                assert user_id
 
-                ws.send_json(
-                    {
-                        "type": "CHAT_SEND",
-                        "payload": {"text": "hello"},
-                        "client_request_id": client_request_id,
-                    }
+                headers = {"Authorization": f"Bearer {access}"}
+                save_id = _create_save_id(
+                    client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}"
                 )
+                url = f"/ws/v1?save_id={save_id}&resume_from=0"
+                with client.websocket_connect(url, headers=headers) as ws:
+                    _ = _recv_until_type(ws, "HELLO")
 
-                got_token = False
-                got_done = False
-                for _ in range(20_000):
-                    msg = _recv_json_dict(ws)
-                    msg_type = msg.get("type")
+                    ws.send_json(
+                        {
+                            "type": "CHAT_SEND",
+                            "payload": {"text": "hello"},
+                            "client_request_id": client_request_id,
+                        }
+                    )
 
-                    if msg_type == "CHAT_TOKEN":
-                        _assert_is_event_frame(msg)
-                        got_token = True
-                        continue
+                    got_token = False
+                    got_done = False
+                    for _ in range(20_000):
+                        msg = _recv_json_dict(ws)
+                        msg_type = msg.get("type")
 
-                    if msg_type == "CHAT_DONE":
-                        _assert_is_event_frame(msg)
-                        payload = msg.get("payload")
-                        assert isinstance(payload, dict)
-                        payload_dict = cast(dict[str, object], payload)
-                        assert payload_dict.get("client_request_id") == client_request_id
-                        assert payload_dict.get("interrupted") is False
-                        got_done = True
-                        break
+                        if msg_type == "CHAT_TOKEN":
+                            _assert_is_event_frame(msg)
+                            got_token = True
+                            continue
 
-                assert got_token, "expected at least one CHAT_TOKEN frame"
-                assert got_done, "expected final CHAT_DONE frame"
+                        if msg_type == "CHAT_DONE":
+                            _assert_is_event_frame(msg)
+                            payload = msg.get("payload")
+                            assert isinstance(payload, dict)
+                            payload_dict = cast(dict[str, object], payload)
+                            assert payload_dict.get("client_request_id") == client_request_id
+                            assert payload_dict.get("interrupted") is False
+                            got_done = True
+                            break
+
+                    assert got_token, "expected at least one CHAT_TOKEN frame"
+                    assert got_done, "expected final CHAT_DONE frame"
+
+            assert _StubOpenAIHandler.last_authorization == "Bearer channel-key"
+            assert _StubOpenAIHandler.last_model == "channel-model"
 
 
 def test_ws_v1_openai_streaming_stub_interrupt_sets_done_interrupted_true(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     with _StubServer() as stub:
-        monkeypatch.setenv("OPENAI_MODE", "openai")
-        monkeypatch.setenv("OPENAI_BASE_URL", stub.base_url)
-        monkeypatch.setenv("OPENAI_API_KEY", "stub-key")
-        monkeypatch.setenv("OPENAI_MODEL", "stub-model")
-        monkeypatch.setenv("OPENAI_API", "responses")
+        with _admin_chat_channel_routing(
+            base_url=stub.base_url,
+            api_key="channel-key",
+            model="channel-model",
+        ):
+            _StubOpenAIHandler.expected_authorization = "Bearer channel-key"
+            _StubOpenAIHandler.expected_model = "channel-model"
+            _StubOpenAIHandler.last_authorization = None
+            _StubOpenAIHandler.last_model = None
 
-        email = _random_email()
-        password = "password123"
-        client_request_id = str(uuid.uuid4())
+            monkeypatch.setenv("OPENAI_MODE", "openai")
+            monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:1")
+            monkeypatch.setenv("OPENAI_API_KEY", "env-key")
+            monkeypatch.setenv("OPENAI_MODEL", "env-model")
+            monkeypatch.setenv("OPENAI_API", "responses")
 
-        with TestClient(app) as client:
-            tokens = _register(client, email=email, password=password)
-            access = tokens["access_token"]
-            user_id = _get_user_id(client, access_token=access)
-            assert user_id
+            email = _random_email()
+            password = "password123"
+            client_request_id = str(uuid.uuid4())
 
-            headers = {"Authorization": f"Bearer {access}"}
-            save_id = _create_save_id(client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}")
-            url = f"/ws/v1?save_id={save_id}&resume_from=0"
-            with client.websocket_connect(url, headers=headers) as ws:
-                _ = _recv_until_type(ws, "HELLO")
+            with TestClient(app) as client:
+                tokens = _register(client, email=email, password=password)
+                access = tokens["access_token"]
+                user_id = _get_user_id(client, access_token=access)
+                assert user_id
 
-                ws.send_json(
-                    {
-                        "type": "CHAT_SEND",
-                        "payload": {"text": "hello"},
-                        "client_request_id": client_request_id,
-                    }
+                headers = {"Authorization": f"Bearer {access}"}
+                save_id = _create_save_id(
+                    client, headers=headers, name=f"save-chat-{uuid.uuid4().hex}"
                 )
+                url = f"/ws/v1?save_id={save_id}&resume_from=0"
+                with client.websocket_connect(url, headers=headers) as ws:
+                    _ = _recv_until_type(ws, "HELLO")
 
-                while True:
-                    msg = _recv_json_dict(ws)
-                    msg_type = msg.get("type")
-                    if msg_type == "CHAT_TOKEN":
-                        _assert_is_event_frame(msg)
-                        break
-                    if msg_type == "CHAT_DONE":
-                        raise AssertionError("received CHAT_DONE before first CHAT_TOKEN")
+                    ws.send_json(
+                        {
+                            "type": "CHAT_SEND",
+                            "payload": {"text": "hello"},
+                            "client_request_id": client_request_id,
+                        }
+                    )
 
-                ws.send_json({"type": "INTERRUPT"})
+                    while True:
+                        msg = _recv_json_dict(ws)
+                        msg_type = msg.get("type")
+                        if msg_type == "CHAT_TOKEN":
+                            _assert_is_event_frame(msg)
+                            break
+                        if msg_type == "CHAT_DONE":
+                            raise AssertionError("received CHAT_DONE before first CHAT_TOKEN")
 
-                done = _recv_until_type(ws, "CHAT_DONE", max_frames=20_000)
-                _assert_is_event_frame(done)
-                payload = done.get("payload")
-                assert isinstance(payload, dict)
-                payload_dict = cast(dict[str, object], payload)
-                assert payload_dict.get("client_request_id") == client_request_id
-                assert payload_dict.get("interrupted") is True
+                    ws.send_json({"type": "INTERRUPT"})
+
+                    done = _recv_until_type(ws, "CHAT_DONE", max_frames=20_000)
+                    _assert_is_event_frame(done)
+                    payload = done.get("payload")
+                    assert isinstance(payload, dict)
+                    payload_dict = cast(dict[str, object], payload)
+                    assert payload_dict.get("client_request_id") == client_request_id
+                    assert payload_dict.get("interrupted") is True
+
+            assert _StubOpenAIHandler.last_authorization == "Bearer channel-key"
+            assert _StubOpenAIHandler.last_model == "channel-model"

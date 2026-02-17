@@ -2,11 +2,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 from collections.abc import AsyncIterator
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Protocol, cast
 from urllib.parse import urlparse
+
+from sqlalchemy.orm import Session
+
+from app.core.admin_secrets import decrypt_secret
+from app.core.config import settings
+from app.db.models import AdminKV, AdminLLMChannel
 
 
 @dataclass
@@ -48,6 +56,109 @@ def _normalize_openai_base_url(raw: str) -> str:
     if not u.endswith("/v1"):
         u = u + "/v1"
     return u
+
+
+def _is_prod_env() -> bool:
+    env = (_env_str("ENV") or "").strip().lower()
+    return env in ("prod", "production")
+
+
+def _clamp_timeout_seconds(raw: float | int | str | None) -> float:
+    try:
+        t = float(raw) if raw is not None else 60.0
+    except Exception:
+        t = 60.0
+    if not math.isfinite(t) or t <= 0:
+        t = 60.0
+    return float(max(1.0, min(300.0, t)))
+
+
+@dataclass(frozen=True)
+class _OpenAIChatConfig:
+    base_url: str
+    api_key: str
+    model: str
+    timeout_s: float
+    source: str
+
+
+def _get_default_chat_channel_id(db: Session) -> str | None:
+    row = (
+        db.query(AdminKV)
+        .filter(AdminKV.namespace == "llm_routing", AdminKV.key == "global")
+        .one_or_none()
+    )
+    if row is None:
+        return None
+    try:
+        obj = cast(object, json.loads(row.value_json))
+    except Exception:
+        return None
+    if not isinstance(obj, dict):
+        return None
+    raw = cast(dict[object, object], obj)
+    val = raw.get("default_chat_channel_id")
+    return val if isinstance(val, str) and val.strip() else None
+
+
+def _resolve_openai_chat_config_from_admin(db: Session) -> _OpenAIChatConfig | None:
+    channel_id = _get_default_chat_channel_id(db)
+    if not channel_id:
+        return None
+
+    ch = db.get(AdminLLMChannel, channel_id)
+    if ch is None or not ch.enabled or ch.purpose != "chat":
+        return None
+
+    if not ch.api_key_enc:
+        return None
+
+    try:
+        api_key = decrypt_secret(
+            ch.api_key_enc, key=settings.admin_secrets_master_key_bytes
+        ).strip()
+    except Exception as e:
+        raise RuntimeError("chat channel api_key decryption failed") from e
+
+    if api_key == "":
+        return None
+
+    try:
+        base_url = _normalize_openai_base_url(ch.base_url)
+    except Exception as e:
+        raise RuntimeError("chat channel base_url invalid") from e
+
+    model = ch.default_model.strip()
+    if model == "":
+        if _is_prod_env():
+            return None
+        model = _env_str("OPENAI_MODEL") or ""
+    if model.strip() == "":
+        return None
+
+    timeout_s = _clamp_timeout_seconds(float(ch.timeout_ms) / 1000.0)
+    return _OpenAIChatConfig(
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        timeout_s=timeout_s,
+        source="admin",
+    )
+
+
+def _resolve_openai_chat_config_from_env() -> _OpenAIChatConfig | None:
+    base_url = _env_str("OPENAI_BASE_URL")
+    api_key = _env_str("OPENAI_API_KEY")
+    model = _env_str("OPENAI_MODEL")
+    if not base_url or not api_key or not model:
+        return None
+    return _OpenAIChatConfig(
+        base_url=_normalize_openai_base_url(base_url),
+        api_key=api_key,
+        model=model,
+        timeout_s=60.0,
+        source="env",
+    )
 
 
 class _SSELineStream(Protocol):
@@ -155,6 +266,7 @@ async def _openai_stream_tokens_via_responses(
     base_url: str,
     api_key: str,
     model: str,
+    timeout_s: float,
     text: str,
     stop: asyncio.Event,
     capture: LLMStreamCapture | None,
@@ -169,7 +281,8 @@ async def _openai_stream_tokens_via_responses(
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     payload = {"model": model, "input": text, "stream": True}
 
-    timeout = httpx.Timeout(60.0, connect=10.0)
+    timeout_s = _clamp_timeout_seconds(timeout_s)
+    timeout = httpx.Timeout(timeout_s, connect=min(10.0, timeout_s))
     async with httpx.AsyncClient(base_url=base_url, timeout=timeout, trust_env=False) as client:
         if stop.is_set():
             return
@@ -200,6 +313,7 @@ async def _openai_stream_tokens_via_chat_completions(
     base_url: str,
     api_key: str,
     model: str,
+    timeout_s: float,
     text: str,
     stop: asyncio.Event,
     capture: LLMStreamCapture | None,
@@ -219,7 +333,8 @@ async def _openai_stream_tokens_via_chat_completions(
         "stream_options": {"include_usage": True},
     }
 
-    timeout = httpx.Timeout(60.0, connect=10.0)
+    timeout_s = _clamp_timeout_seconds(timeout_s)
+    timeout = httpx.Timeout(timeout_s, connect=min(10.0, timeout_s))
     async with httpx.AsyncClient(base_url=base_url, timeout=timeout, trust_env=False) as client:
         if stop.is_set():
             return
@@ -250,6 +365,7 @@ async def stream_chat_tokens(
     *,
     stop: asyncio.Event | None = None,
     capture: LLMStreamCapture | None = None,
+    db_factory: Callable[[], Session] | None = None,
 ) -> AsyncIterator[str]:
     stop_event = stop or asyncio.Event()
 
@@ -265,21 +381,48 @@ async def stream_chat_tokens(
             yield t
         return
 
-    base_url = _env_str("OPENAI_BASE_URL")
-    api_key = _env_str("OPENAI_API_KEY")
-    model = _env_str("OPENAI_MODEL")
+    async def _resolve_cfg() -> _OpenAIChatConfig | None:
+        factory = db_factory
+        if factory is None:
+            return None
+
+        def _sync() -> _OpenAIChatConfig | None:
+            db = factory()
+            try:
+                return _resolve_openai_chat_config_from_admin(db)
+            finally:
+                try:
+                    db.close()
+                except Exception:
+                    pass
+
+        return await asyncio.to_thread(_sync)
+
+    cfg = await _resolve_cfg()
+    if cfg is None and not _is_prod_env():
+        cfg = _resolve_openai_chat_config_from_env()
+
+    if cfg is None:
+        if _is_prod_env():
+            raise RuntimeError(
+                "production chat requires admin llm routing: set AdminKV(llm_routing/global).default_chat_channel_id "
+                + "to an enabled AdminLLMChannel(purpose='chat') with api_key and default_model"
+            )
+        raise RuntimeError(
+            "OPENAI_MODE=openai requires either admin llm routing (default_chat_channel_id) or OPENAI_BASE_URL/OPENAI_API_KEY/OPENAI_MODEL"
+        )
+
+    base_url = cfg.base_url
+    api_key = cfg.api_key
+    model = cfg.model
+    timeout_s = cfg.timeout_s
     api = (_env_str("OPENAI_API") or "auto").lower()
 
     if capture is not None:
-        capture.provider = "openai_compatible"
-        capture.model = str(model or "")
-
-    if not base_url or not api_key or not model:
-        raise RuntimeError(
-            "OPENAI_MODE=openai 需要同时配置 OPENAI_BASE_URL / OPENAI_API_KEY / OPENAI_MODEL"
+        capture.provider = (
+            "openai_compatible_admin" if cfg.source == "admin" else "openai_compatible"
         )
-
-    base_url = _normalize_openai_base_url(base_url)
+        capture.model = str(model)
 
     if api in ("responses", "response"):
         if capture is not None:
@@ -288,6 +431,7 @@ async def stream_chat_tokens(
             base_url=base_url,
             api_key=api_key,
             model=model,
+            timeout_s=timeout_s,
             text=text,
             stop=stop_event,
             capture=capture,
@@ -302,6 +446,7 @@ async def stream_chat_tokens(
             base_url=base_url,
             api_key=api_key,
             model=model,
+            timeout_s=timeout_s,
             text=text,
             stop=stop_event,
             capture=capture,
@@ -316,6 +461,7 @@ async def stream_chat_tokens(
             base_url=base_url,
             api_key=api_key,
             model=model,
+            timeout_s=timeout_s,
             text=text,
             stop=stop_event,
             capture=capture,
@@ -332,6 +478,7 @@ async def stream_chat_tokens(
             base_url=base_url,
             api_key=api_key,
             model=model,
+            timeout_s=timeout_s,
             text=text,
             stop=stop_event,
             capture=capture,

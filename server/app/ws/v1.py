@@ -287,7 +287,9 @@ async def ws_v1(websocket: WebSocket) -> None:
         interrupted = False
         error: str | None = None
         try:
-            async for token in stream_chat_tokens(text, stop=stop, capture=capture):
+            async for token in stream_chat_tokens(
+                text, stop=stop, capture=capture, db_factory=SessionLocal
+            ):
                 if stop.is_set():
                     interrupted = True
                     break

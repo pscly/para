@@ -103,7 +103,25 @@ def _start_models_stub(*, expected_bearer: str) -> tuple[ThreadingHTTPServer, st
     return server, f"http://127.0.0.1:{port}"
 
 
+def _cleanup_admin_llm_state_for_test() -> None:
+    with SessionLocal() as db:
+        _ = db.query(AdminLLMChannel).delete(synchronize_session=False)
+
+        _ = (
+            db.query(AdminKV)
+            .filter(
+                AdminKV.namespace == "llm_routing",
+                AdminKV.key == "global",
+            )
+            .delete(synchronize_session=False)
+        )
+
+        db.commit()
+
+
 def test_task_9_admin_llm_channels_crud_rbac_audit_and_connectivity() -> None:
+    _cleanup_admin_llm_state_for_test()
+
     super_pw = f"pw-{uuid.uuid4().hex}"
     op_pw = f"pw-{uuid.uuid4().hex}"
     super_admin = _create_admin(role="super_admin", password=super_pw)
