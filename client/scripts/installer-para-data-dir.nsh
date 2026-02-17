@@ -172,7 +172,7 @@ FunctionEnd
       StrCpy $R1 "${PARA_CONFIG_FILE}"
       StrCpy $R2 "$R1.tmp"
       FileOpen $0 "$R2" w
-      FileWrite $0 "{\"userDataDir\":\"$R0\",\"source\":\"nsis\",\"version\":1}\r\n"
+      FileWrite $0 "{$\"userDataDir$\":$\"$R0$\",$\"source$\":$\"nsis$\",$\"version$\":1}$\r$\n"
       FileClose $0
 
       Delete "$R1"
@@ -195,7 +195,7 @@ FunctionEnd
     StrCpy $R1 "${PARA_CONFIG_FILE}"
     StrCpy $R2 "$R1.tmp"
     FileOpen $0 "$R2" w
-    FileWrite $0 "{\"userDataDir\":\"$R0\",\"source\":\"nsis\",\"version\":1}\r\n"
+    FileWrite $0 "{$\"userDataDir$\":$\"$R0$\",$\"source$\":$\"nsis$\",$\"version$\":1}$\r$\n"
     FileClose $0
 
     Delete "$R1"
