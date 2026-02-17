@@ -21,10 +21,10 @@ Function ParaTrimQuotes
   Exch $0
   ; Trim surrounding double-quotes (accept /DATA_DIR="C:\path with spaces").
   StrCpy $1 $0 1
-  ${If} $1 == '"'
+  ${If} $1 == "$\""
     StrCpy $0 $0 "" 1
     StrCpy $1 $0 1 -1
-    ${If} $1 == '"'
+    ${If} $1 == "$\""
       StrCpy $0 $0 -1
     ${EndIf}
   ${EndIf}
@@ -62,10 +62,10 @@ Function ParaPathToJsonString
     StrCpy $4 $0 1 $3
     ${If} $4 == "\\"
       StrCpy $1 "$1/"
-    ${ElseIf} $4 == '"'
+    ${ElseIf} $4 == "$\""
       ; In NSIS strings, writing \" directly can confuse the parser.
-      ; Use $\\ for backslash and $\" for a literal double-quote to produce JSON \".
-      StrCpy $1 "$1$\\$\""
+      ; To produce JSON \" (two chars: \\ + "), append a literal '\\' plus $\".
+      StrCpy $1 "$1\$\""
     ${Else}
       StrCpy $1 "$1$4"
     ${EndIf}
