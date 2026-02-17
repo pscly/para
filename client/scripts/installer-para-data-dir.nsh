@@ -10,6 +10,11 @@
 !include "LogicLib.nsh"
 !include "FileFunc.nsh"
 
+; This include is injected for both installer and uninstaller builds.
+; Guard installer-only functions/macros to avoid makensis warning 6010
+; (warnings are treated as errors in our release pipeline).
+!ifndef BUILD_UNINSTALLER
+
 Var ParaDataDir
 Var ParaDataDirInput
 Var ParaDataDirWasExplicit
@@ -197,3 +202,5 @@ FunctionEnd
     Rename "$R2" "$R1"
   ${endIf}
 !macroend
+
+!endif

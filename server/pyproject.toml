@@ -1,6 +1,6 @@
 [project]
 name = "para-server"
-version = "0.1.4"
+version = "0.1.5"
 description = "FastAPI server scaffold for para."
 readme = "README.md"
 requires-python = ">=3.12"
