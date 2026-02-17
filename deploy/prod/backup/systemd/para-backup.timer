@@ -1,0 +1,11 @@
+[Unit]
+Description=para backup timer (daily)
+
+[Timer]
+OnCalendar=*-*-* 03:30:00
+Persistent=true
+RandomizedDelaySec=300
+Unit=para-backup.service
+
+[Install]
+WantedBy=timers.target

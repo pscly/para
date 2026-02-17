@@ -1,0 +1,37 @@
+name: para-dryrun
+
+services:
+  dryrun-postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${DRYRUN_POSTGRES_DB:-para_dryrun}
+      POSTGRES_USER: ${DRYRUN_POSTGRES_USER:-para}
+      POSTGRES_PASSWORD: ${DRYRUN_POSTGRES_PASSWORD:-para}
+    ports:
+      - "${DRYRUN_POSTGRES_PORT:-55432}:5432"
+    volumes:
+      - dryrun_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DRYRUN_POSTGRES_USER:-para} -d ${DRYRUN_POSTGRES_DB:-para_dryrun}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    restart: unless-stopped
+
+  dryrun-redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "${DRYRUN_REDIS_PORT:-56379}:6379"
+    volumes:
+      - dryrun_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: unless-stopped
+
+volumes:
+  dryrun_pg_data:
+  dryrun_redis_data:

@@ -31,6 +31,34 @@ docker compose -f deploy/prod/docker-compose.yml ps
 docker compose -f deploy/prod/docker-compose.yml --profile migrate run --rm migrate
 ```
 
+## 创建/重置第一个 AdminUser（bootstrap）
+
+背景：`/admin` 登录依赖数据库表 `admin_users`。生产库为空时需要先创建第一个管理员账号。
+
+脚本入口（在服务端容器内运行）：
+
+```bash
+uv run python -m app.scripts.bootstrap_admin_user --email "admin@example.com"
+```
+
+安全建议：不要把明文密码直接写在命令行参数里（会进入 shell history/进程列表）。推荐用 stdin：
+
+```bash
+read -r -s -p "Admin password: " BOOTSTRAP_ADMIN_PASSWORD; echo
+printf '%s' "$BOOTSTRAP_ADMIN_PASSWORD" \
+  | docker compose -f deploy/prod/docker-compose.yml exec -T api \
+      uv run python -m app.scripts.bootstrap_admin_user \
+        --email "admin@example.com" \
+        --password-stdin
+unset BOOTSTRAP_ADMIN_PASSWORD
+```
+
+说明：
+
+- 密码来源优先级：`--password-stdin` > 环境变量 `BOOTSTRAP_ADMIN_PASSWORD` > 自动生成随机密码。
+- 未提供密码时脚本会生成一个符合策略的随机密码，并且只在输出中打印一次（请立即保存）。
+- 默认会为“已存在的同 email 管理员”重置密码；如需保持原密码：追加 `--no-reset-password`。
+
 可选：启用 Celery beat（默认不启用）：
 
 ```bash
