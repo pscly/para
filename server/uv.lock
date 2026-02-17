@@ -486,7 +486,7 @@ wheels = [
 
 [[package]]
 name = "para-server"
-version = "0.1.7"
+version = "0.1.8"
 source = { virtual = "." }
 dependencies = [
     { name = "alembic" },

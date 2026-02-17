@@ -46,7 +46,7 @@ Function ParaNormalizeForFs
   ${While} $3 < $2
     StrCpy $4 $0 1 $3
     ${If} $4 == "/"
-      StrCpy $1 "$1\\"
+      StrCpy $1 "$1\"
     ${Else}
       StrCpy $1 "$1$4"
     ${EndIf}
@@ -65,7 +65,7 @@ Function ParaPathToJsonString
   StrCpy $3 0
   ${While} $3 < $2
     StrCpy $4 $0 1 $3
-    ${If} $4 == "\\"
+    ${If} $4 == "\"
       StrCpy $1 "$1/"
     ${ElseIf} $4 == "$\""
       ; In NSIS strings, writing \" directly can confuse the parser.
