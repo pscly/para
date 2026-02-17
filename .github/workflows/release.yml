@@ -55,6 +55,14 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
+          # 规范化产物命名：确保 Release 资产名稳定、且 sha256 文件第二列文件名与之完全一致。
+          # 目标：Para.Desktop.Setup.<version>.exe（无空格），sha 文件内容写同名。
+          $tag = '${{ github.ref_name }}'
+          $version = $tag
+          if ($version.StartsWith('v')) {
+            $version = $version.Substring(1)
+          }
+
           $distRoot = Join-Path $PWD 'client/dist-electron'
           if (!(Test-Path $distRoot)) {
             throw "dist directory not found: $distRoot"
@@ -77,6 +85,13 @@ jobs:
 
           if (-not $installer) {
             $installer = $exeFiles | Sort-Object Length -Descending | Select-Object -First 1
+          }
+
+          $normalizedName = "Para.Desktop.Setup.$version.exe"
+          $normalizedPath = Join-Path $installer.Directory.FullName $normalizedName
+          if ($installer.Name -ne $normalizedName) {
+            Copy-Item -LiteralPath $installer.FullName -Destination $normalizedPath -Force
+            $installer = Get-Item -LiteralPath $normalizedPath
           }
 
           $hash = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash.ToLower()
