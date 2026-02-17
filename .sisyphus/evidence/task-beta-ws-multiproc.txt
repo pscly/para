@@ -1,30 +1,30 @@
 
 ========== [TASK] Beta QA Runner（多进程 WS + Celery 事件可达） ==========
 repo_root=/root/1codes/1para
-compose_project=qa-beta-ws-multiproc-1771174633-485599
-ports: postgres=43997 redis=35185 server=57471
-tmp_dir=/tmp/tmp.xVU6qAWdZj
+compose_project=qa-beta-ws-multiproc-1771335122-2684624
+ports: postgres=44129 redis=54363 server=41717
+tmp_dir=/tmp/tmp.t7sSCxYYSn
 evidence_file=/root/1codes/1para/.sisyphus/evidence/task-beta-ws-multiproc.txt
 
 ========== [STEP START] 启动依赖拓扑（deps） ==========
 + docker compose -p <project> up -d postgres redis  # COMPOSE_PROJECT_NAME=<project> POSTGRES_PORT=<dynamic> REDIS_PORT=<dynamic>
- Network qa-beta-ws-multiproc-1771174633-485599_default Creating 
- Network qa-beta-ws-multiproc-1771174633-485599_default Created 
- Volume qa-beta-ws-multiproc-1771174633-485599_pg_data Creating 
- Volume qa-beta-ws-multiproc-1771174633-485599_pg_data Created 
- Volume qa-beta-ws-multiproc-1771174633-485599_redis_data Creating 
- Volume qa-beta-ws-multiproc-1771174633-485599_redis_data Created 
- Container qa-beta-ws-multiproc-1771174633-485599-postgres Creating 
- Container qa-beta-ws-multiproc-1771174633-485599-redis Creating 
- Container qa-beta-ws-multiproc-1771174633-485599-postgres Created 
- Container qa-beta-ws-multiproc-1771174633-485599-redis Created 
- Container qa-beta-ws-multiproc-1771174633-485599-redis Starting 
- Container qa-beta-ws-multiproc-1771174633-485599-postgres Starting 
- Container qa-beta-ws-multiproc-1771174633-485599-postgres Started 
- Container qa-beta-ws-multiproc-1771174633-485599-redis Started 
-NAME                                              IMAGE                    COMMAND                   SERVICE    CREATED          STATUS                    PORTS
-qa-beta-ws-multiproc-1771174633-485599-postgres   pgvector/pgvector:pg16   "docker-entrypoint.s…"   postgres   12 seconds ago   Up 11 seconds (healthy)   0.0.0.0:43997->5432/tcp, [::]:43997->5432/tcp
-qa-beta-ws-multiproc-1771174633-485599-redis      redis:7-alpine           "docker-entrypoint.s…"   redis      12 seconds ago   Up 11 seconds (healthy)   0.0.0.0:35185->6379/tcp, [::]:35185->6379/tcp
+ Network qa-beta-ws-multiproc-1771335122-2684624_default Creating 
+ Network qa-beta-ws-multiproc-1771335122-2684624_default Created 
+ Volume qa-beta-ws-multiproc-1771335122-2684624_pg_data Creating 
+ Volume qa-beta-ws-multiproc-1771335122-2684624_pg_data Created 
+ Volume qa-beta-ws-multiproc-1771335122-2684624_redis_data Creating 
+ Volume qa-beta-ws-multiproc-1771335122-2684624_redis_data Created 
+ Container qa-beta-ws-multiproc-1771335122-2684624-postgres Creating 
+ Container qa-beta-ws-multiproc-1771335122-2684624-redis Creating 
+ Container qa-beta-ws-multiproc-1771335122-2684624-redis Created 
+ Container qa-beta-ws-multiproc-1771335122-2684624-postgres Created 
+ Container qa-beta-ws-multiproc-1771335122-2684624-redis Starting 
+ Container qa-beta-ws-multiproc-1771335122-2684624-postgres Starting 
+ Container qa-beta-ws-multiproc-1771335122-2684624-postgres Started 
+ Container qa-beta-ws-multiproc-1771335122-2684624-redis Started 
+NAME                                               IMAGE                    COMMAND                   SERVICE    CREATED          STATUS                    PORTS
+qa-beta-ws-multiproc-1771335122-2684624-postgres   pgvector/pgvector:pg16   "docker-entrypoint.s…"   postgres   12 seconds ago   Up 11 seconds (healthy)   0.0.0.0:44129->5432/tcp, [::]:44129->5432/tcp
+qa-beta-ws-multiproc-1771335122-2684624-redis      redis:7-alpine           "docker-entrypoint.s…"   redis      12 seconds ago   Up 11 seconds (healthy)   0.0.0.0:54363->6379/tcp, [::]:54363->6379/tcp
 
 ========== [STEP OK] 启动依赖拓扑（deps） ==========
 
@@ -40,22 +40,26 @@ INFO  [alembic.runtime.migration] Running upgrade b0d31c0c7a2e -> c6c8f2a0a9d1, 
 INFO  [alembic.runtime.migration] Running upgrade c6c8f2a0a9d1 -> d2e4a7b5c1f0, password reset tokens
 INFO  [alembic.runtime.migration] Running upgrade d2e4a7b5c1f0 -> e8a4c1b2d3f4, llm usage events
 INFO  [alembic.runtime.migration] Running upgrade e8a4c1b2d3f4 -> 9c1f0b2a3d4e, review fields for ugc + plugin packages
+INFO  [alembic.runtime.migration] Running upgrade 9c1f0b2a3d4e -> 4b8d1a2c3e4f
+INFO  [alembic.runtime.migration] Running upgrade 4b8d1a2c3e4f -> 959e03e01f0b, task_12_pgvector_ann_indexes
+INFO  [alembic.runtime.migration] Running upgrade 959e03e01f0b -> b7c3a1d9e4f2, vector hnsw indexes
+INFO  [alembic.runtime.migration] Running upgrade b7c3a1d9e4f2 -> 2d6a1098897f, task_20_invite_codes
 
 ========== [STEP OK] 迁移（alembic upgrade head） ==========
 
 ========== [STEP START] 启动服务（uvicorn multiproc） ==========
 + cd server && uv run uvicorn app.main:app --workers 2 --host 127.0.0.1 --port <dynamic>
-ws_support_backend=wsproto
-server_pgid=486633
-server_log=/tmp/tmp.xVU6qAWdZj/uvicorn.log
+ws_support_backend=websockets
+server_pgid=2685830
+server_log=/tmp/tmp.t7sSCxYYSn/uvicorn.log
 server_ready_probe=tcp_ok=True
 
 ========== [STEP OK] 启动服务（uvicorn multiproc） ==========
 
 ========== [STEP START] 启动 Worker（celery non-eager） ==========
 + cd server && uv run celery -A app.workers.celery_app:celery_app worker -l INFO -c 1
-worker_pgid=486644
-worker_log=/tmp/tmp.xVU6qAWdZj/celery.log
+worker_pgid=2685942
+worker_log=/tmp/tmp.t7sSCxYYSn/celery.log
 worker_ready_probe=file_contains=True
 
 ========== [STEP OK] 启动 Worker（celery non-eager） ==========
@@ -63,12 +67,12 @@ worker_ready_probe=file_contains=True
 ========== [STEP START] 硬验收（WS + Celery 事件可达） ==========
 + node(ws) 连接 /ws/v1 并触发 /api/v1/dreams/trigger，等待 TIMELINE_EVENT
 node_version=24.13.0
-ws_url=ws://127.0.0.1:57471/ws/v1?save_id=8af5eac2-7dbd-499f-8ade-7527f42a3511&resume_from=0&device_id=qa_beta_eda1dbcf
-qa_task_id=947d9288-d746-431a-9199-ec1033dcd9b9
-ws_evidence={"email":"qa-beta-1771174656292-8c4ccc31@example.com","save_id":"8af5eac2-7dbd-499f-8ade-7527f42a3511","trigger_task_id":"947d9288-d746-431a-9199-ec1033dcd9b9","ws_frame_type":"TIMELINE_EVENT","ws_frame_seq":1,"ws_frame_server_event_id":"ca5643c2-0d9a-4dd3-9737-74b793c907f3:8af5eac2-7dbd-499f-8ade-7527f42a3511:1","ws_payload_event":"DREAM_ENTRY_CREATED","assert_ws_timeline_event":true,"assert_ws_payload_event_is_dream_entry_created":true}
+ws_url=ws://127.0.0.1:41717/ws/v1?save_id=27cdf55b-4e3d-4dce-a890-f67a20799f9e&resume_from=0&device_id=qa_beta_c88eb514
+qa_task_id=62973af1-e732-4310-8a25-d13fe6d7bd34
+ws_evidence={"email":"qa-beta-1771335142593-b3085727@example.com","save_id":"27cdf55b-4e3d-4dce-a890-f67a20799f9e","trigger_task_id":"62973af1-e732-4310-8a25-d13fe6d7bd34","ws_frame_type":"TIMELINE_EVENT","ws_frame_seq":1,"ws_frame_server_event_id":"e1daaa20-7c9e-43df-a6d0-c48375f7606a:27cdf55b-4e3d-4dce-a890-f67a20799f9e:1","ws_payload_event":"DREAM_ENTRY_CREATED","assert_ws_timeline_event":true,"assert_ws_payload_event_is_dream_entry_created":true}
 assert_ws_timeline_event=True
 assert_ws_payload_event=DREAM_ENTRY_CREATED
-assert_task_id_from_trigger=947d9288-d746-431a-9199-ec1033dcd9b9
+assert_task_id_from_trigger=62973af1-e732-4310-8a25-d13fe6d7bd34
 file_contains=True
 assert_worker_processed_task_id=True
 
@@ -78,18 +82,20 @@ assert_worker_processed_task_id=True
 + 写入证据文件 + 输出 server/worker 日志尾部；最后由 trap 清理 docker/进程
 
 --- uvicorn.log (tail) ---
-INFO:     Uvicorn running on http://127.0.0.1:57471 (Press CTRL+C to quit)
-INFO:     Started parent process [486638]
-INFO:     Started server process [486641]
+INFO:     Uvicorn running on http://127.0.0.1:41717 (Press CTRL+C to quit)
+INFO:     Started parent process [2685835]
+INFO:     Started server process [2685838]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Started server process [486640]
+INFO:     Started server process [2685837]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:44398 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
-INFO:     127.0.0.1:44398 - "POST /api/v1/saves HTTP/1.1" 201 Created
-INFO:     127.0.0.1:44402 - "WebSocket /ws/v1?save_id=8af5eac2-7dbd-499f-8ade-7527f42a3511&resume_from=0&device_id=qa_beta_eda1dbcf" [accepted]
-INFO:     127.0.0.1:44398 - "POST /api/v1/dreams/trigger HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52638 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
+INFO:     127.0.0.1:52638 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:52642 - "WebSocket /ws/v1?save_id=27cdf55b-4e3d-4dce-a890-f67a20799f9e&resume_from=0&device_id=qa_beta_c88eb514" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52638 - "POST /api/v1/dreams/trigger HTTP/1.1" 200 OK
+INFO:     connection closed
 
 --- celery.log (tail) ---
 /root/1codes/1para/server/.venv/lib/python3.12/site-packages/celery/platforms.py:841: SecurityWarning: You're running the worker with superuser privileges: this is
@@ -103,12 +109,12 @@ User information: uid=0 euid=0 gid=0 egid=0
  
  -------------- celery@ps v5.6.2 (recovery)
 --- ***** ----- 
--- ******* ---- Linux-6.8.0-100-generic-x86_64-with-glibc2.39 2026-02-16 00:57:34
+-- ******* ---- Linux-6.8.0-100-generic-x86_64-with-glibc2.39 2026-02-17 21:32:21
 - *** --- * --- 
 - ** ---------- [config]
-- ** ---------- .> app:         para:0x7ae06b1d0200
-- ** ---------- .> transport:   redis://127.0.0.1:35185/0
-- ** ---------- .> results:     redis://127.0.0.1:35185/0
+- ** ---------- .> app:         para:0x7c9fc99dc890
+- ** ---------- .> transport:   redis://127.0.0.1:54363/0
+- ** ---------- .> results:     redis://127.0.0.1:54363/0
 - *** --- * --- .> concurrency: 1 (prefork)
 -- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
 --- ***** ----- 
@@ -119,17 +125,19 @@ User information: uid=0 euid=0 gid=0 egid=0
 [tasks]
   . app.workers.tasks.dreams.task_12_generate_dream_entry
   . app.workers.tasks.dreams.task_12_generate_dreams_for_all_saves
+  . app.workers.tasks.embeddings.task_11_reembed_knowledge_chunks
+  . app.workers.tasks.embeddings.task_11_reembed_memory_embeddings
   . app.workers.tasks.gallery.task_17_generate_gallery_image
   . app.workers.tasks.knowledge.task_13_index_knowledge_material
   . app.workers.tasks.timeline.task_18_generate_timeline_event
   . app.workers.tasks.timeline.task_18_generate_timeline_events_for_all_saves
 
-2026-02-16 00:57:35 INFO [celery.worker.consumer.connection] [rid=-] Connected to redis://127.0.0.1:35185/0
-2026-02-16 00:57:35 INFO [celery.worker.consumer.mingle] [rid=-] mingle: searching for neighbors
-2026-02-16 00:57:36 INFO [celery.worker.consumer.mingle] [rid=-] mingle: all alone
-2026-02-16 00:57:36 INFO [celery.apps.worker] [rid=-] celery@ps ready.
-2026-02-16 00:57:36 INFO [celery.worker.strategy] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[947d9288-d746-431a-9199-ec1033dcd9b9] received
-2026-02-16 00:57:36 INFO [celery.app.trace] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[947d9288-d746-431a-9199-ec1033dcd9b9] succeeded in 0.14475934799702372s: {'dream_entry_id': '98048cb5-26ce-468b-ad43-57e2740d3664', 'ws_frame': {'type': 'TIMELINE_EVENT', 'seq': 1, 'server_event_id': 'ca5643c2-0d9a-4dd3-9737-74b793c907f3:8af5eac2-7dbd-499f-8ade-7527f42a3511:1'}}
+2026-02-17 21:32:21 INFO [celery.worker.consumer.connection] [rid=-] Connected to redis://127.0.0.1:54363/0
+2026-02-17 21:32:21 INFO [celery.worker.consumer.mingle] [rid=-] mingle: searching for neighbors
+2026-02-17 21:32:22 INFO [celery.worker.consumer.mingle] [rid=-] mingle: all alone
+2026-02-17 21:32:22 INFO [celery.apps.worker] [rid=-] celery@ps ready.
+2026-02-17 21:32:23 INFO [celery.worker.strategy] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[62973af1-e732-4310-8a25-d13fe6d7bd34] received
+2026-02-17 21:32:23 INFO [celery.app.trace] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[62973af1-e732-4310-8a25-d13fe6d7bd34] succeeded in 0.12531360698631033s: {'dream_entry_id': '8fe779fe-ee11-47c1-8958-76e8a758c963', 'ws_frame': {'type': 'TIMELINE_EVENT', 'seq': 1, 'server_event_id': 'e1daaa20-7c9e-43df-a6d0-c48375f7606a:27cdf55b-4e3d-4dce-a890-f67a20799f9e:1'}}
 
 assert_evidence_file=/root/1codes/1para/.sisyphus/evidence/task-beta-ws-multiproc.txt
 
@@ -138,38 +146,38 @@ assert_evidence_file=/root/1codes/1para/.sisyphus/evidence/task-beta-ws-multipro
 ========== [TASK] ALL GREEN ==========
 
 ========== [CLEANUP] 清理进程与 docker compose（project 仅本次） ==========
-+ kill -TERM -- -486644  # celery worker process group
-+ kill -TERM -- -486633  # uvicorn process group
-+ docker compose -p qa-beta-ws-multiproc-1771174633-485599 down -v
++ kill -TERM -- -2685942  # celery worker process group
++ kill -TERM -- -2685830  # uvicorn process group
++ docker compose -p qa-beta-ws-multiproc-1771335122-2684624 down -v
 
 --- uvicorn.log (tail, cleanup) ---
-INFO:     Uvicorn running on http://127.0.0.1:57471 (Press CTRL+C to quit)
-INFO:     Started parent process [486638]
-INFO:     Started server process [486641]
+INFO:     Uvicorn running on http://127.0.0.1:41717 (Press CTRL+C to quit)
+INFO:     Started parent process [2685835]
+INFO:     Started server process [2685838]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     Started server process [486640]
+INFO:     Started server process [2685837]
 INFO:     Waiting for application startup.
 INFO:     Application startup complete.
-INFO:     127.0.0.1:44398 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
-INFO:     127.0.0.1:44398 - "POST /api/v1/saves HTTP/1.1" 201 Created
-INFO:     127.0.0.1:44402 - "WebSocket /ws/v1?save_id=8af5eac2-7dbd-499f-8ade-7527f42a3511&resume_from=0&device_id=qa_beta_eda1dbcf" [accepted]
-INFO:     127.0.0.1:44398 - "POST /api/v1/dreams/trigger HTTP/1.1" 200 OK
+INFO:     127.0.0.1:52638 - "POST /api/v1/auth/register HTTP/1.1" 201 Created
+INFO:     127.0.0.1:52638 - "POST /api/v1/saves HTTP/1.1" 201 Created
+INFO:     127.0.0.1:52642 - "WebSocket /ws/v1?save_id=27cdf55b-4e3d-4dce-a890-f67a20799f9e&resume_from=0&device_id=qa_beta_c88eb514" [accepted]
+INFO:     connection open
+INFO:     127.0.0.1:52638 - "POST /api/v1/dreams/trigger HTTP/1.1" 200 OK
+INFO:     connection closed
 INFO:     Shutting down
 INFO:     Shutting down
-INFO:     Received SIGTERM, exiting.
-INFO:     Received SIGTERM, exiting.
-INFO:     Terminated child process [486640]
-INFO:     Terminated child process [486641]
-INFO:     Waiting for child process [486640]
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [486640]
-INFO:     Waiting for child process [486641]
+INFO:     Finished server process [2685837]
 INFO:     Waiting for application shutdown.
 INFO:     Application shutdown complete.
-INFO:     Finished server process [486641]
-INFO:     Stopping parent process [486638]
+INFO:     Finished server process [2685838]
+INFO:     Received SIGTERM, exiting.
+INFO:     Received SIGTERM, exiting.
+INFO:     Waiting for child process [2685837]
+INFO:     Waiting for child process [2685838]
+INFO:     Stopping parent process [2685835]
 
 --- celery.log (tail, cleanup) ---
 /root/1codes/1para/server/.venv/lib/python3.12/site-packages/celery/platforms.py:841: SecurityWarning: You're running the worker with superuser privileges: this is
@@ -183,12 +191,12 @@ User information: uid=0 euid=0 gid=0 egid=0
  
  -------------- celery@ps v5.6.2 (recovery)
 --- ***** ----- 
--- ******* ---- Linux-6.8.0-100-generic-x86_64-with-glibc2.39 2026-02-16 00:57:34
+-- ******* ---- Linux-6.8.0-100-generic-x86_64-with-glibc2.39 2026-02-17 21:32:21
 - *** --- * --- 
 - ** ---------- [config]
-- ** ---------- .> app:         para:0x7ae06b1d0200
-- ** ---------- .> transport:   redis://127.0.0.1:35185/0
-- ** ---------- .> results:     redis://127.0.0.1:35185/0
+- ** ---------- .> app:         para:0x7c9fc99dc890
+- ** ---------- .> transport:   redis://127.0.0.1:54363/0
+- ** ---------- .> results:     redis://127.0.0.1:54363/0
 - *** --- * --- .> concurrency: 1 (prefork)
 -- ******* ---- .> task events: OFF (enable -E to monitor tasks in this worker)
 --- ***** ----- 
@@ -199,19 +207,21 @@ User information: uid=0 euid=0 gid=0 egid=0
 [tasks]
   . app.workers.tasks.dreams.task_12_generate_dream_entry
   . app.workers.tasks.dreams.task_12_generate_dreams_for_all_saves
+  . app.workers.tasks.embeddings.task_11_reembed_knowledge_chunks
+  . app.workers.tasks.embeddings.task_11_reembed_memory_embeddings
   . app.workers.tasks.gallery.task_17_generate_gallery_image
   . app.workers.tasks.knowledge.task_13_index_knowledge_material
   . app.workers.tasks.timeline.task_18_generate_timeline_event
   . app.workers.tasks.timeline.task_18_generate_timeline_events_for_all_saves
 
-2026-02-16 00:57:35 INFO [celery.worker.consumer.connection] [rid=-] Connected to redis://127.0.0.1:35185/0
-2026-02-16 00:57:35 INFO [celery.worker.consumer.mingle] [rid=-] mingle: searching for neighbors
-2026-02-16 00:57:36 INFO [celery.worker.consumer.mingle] [rid=-] mingle: all alone
-2026-02-16 00:57:36 INFO [celery.apps.worker] [rid=-] celery@ps ready.
-2026-02-16 00:57:36 INFO [celery.worker.strategy] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[947d9288-d746-431a-9199-ec1033dcd9b9] received
-2026-02-16 00:57:36 INFO [celery.app.trace] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[947d9288-d746-431a-9199-ec1033dcd9b9] succeeded in 0.14475934799702372s: {'dream_entry_id': '98048cb5-26ce-468b-ad43-57e2740d3664', 'ws_frame': {'type': 'TIMELINE_EVENT', 'seq': 1, 'server_event_id': 'ca5643c2-0d9a-4dd3-9737-74b793c907f3:8af5eac2-7dbd-499f-8ade-7527f42a3511:1'}}
+2026-02-17 21:32:21 INFO [celery.worker.consumer.connection] [rid=-] Connected to redis://127.0.0.1:54363/0
+2026-02-17 21:32:21 INFO [celery.worker.consumer.mingle] [rid=-] mingle: searching for neighbors
+2026-02-17 21:32:22 INFO [celery.worker.consumer.mingle] [rid=-] mingle: all alone
+2026-02-17 21:32:22 INFO [celery.apps.worker] [rid=-] celery@ps ready.
+2026-02-17 21:32:23 INFO [celery.worker.strategy] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[62973af1-e732-4310-8a25-d13fe6d7bd34] received
+2026-02-17 21:32:23 INFO [celery.app.trace] [rid=-] Task app.workers.tasks.dreams.task_12_generate_dream_entry[62973af1-e732-4310-8a25-d13fe6d7bd34] succeeded in 0.12531360698631033s: {'dream_entry_id': '8fe779fe-ee11-47c1-8958-76e8a758c963', 'ws_frame': {'type': 'TIMELINE_EVENT', 'seq': 1, 'server_event_id': 'e1daaa20-7c9e-43df-a6d0-c48375f7606a:27cdf55b-4e3d-4dce-a890-f67a20799f9e:1'}}
 
 worker: Warm shutdown (MainProcess)
 
 worker: Warm shutdown (MainProcess)
-+ rm -rf /tmp/tmp.xVU6qAWdZj
++ rm -rf /tmp/tmp.t7sSCxYYSn
