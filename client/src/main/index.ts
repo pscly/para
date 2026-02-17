@@ -3,19 +3,30 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, clipboard, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } from 'electron';
 import type { Event as ElectronEvent } from 'electron';
 import { createUpdateManager, type UpdateManager, type UpdateState } from './updateManager';
+import { getParaInstallerConfigPath, tryReadParaInstallerConfigSync, writeParaInstallerConfigAtomic } from './installerConfig';
 
 const AUTH_TOKENS_FILENAME = 'auth.tokens.json';
+
+const BYOK_CONFIG_FILENAME = 'byok.config.json';
 
 const IPC_AUTH_SET_TOKENS = 'auth:setTokens';
 const IPC_AUTH_GET_TOKENS = 'auth:getTokens';
 const IPC_AUTH_CLEAR_TOKENS = 'auth:clearTokens';
 
 const IPC_AUTH_LOGIN = 'auth:login';
+const IPC_AUTH_REGISTER = 'auth:register';
 const IPC_AUTH_ME = 'auth:me';
 const IPC_AUTH_LOGOUT = 'auth:logout';
+
+const IPC_BYOK_GET_CONFIG = 'byok:getConfig';
+const IPC_BYOK_SET_CONFIG = 'byok:setConfig';
+const IPC_BYOK_UPDATE_API_KEY = 'byok:updateApiKey';
+const IPC_BYOK_CLEAR_API_KEY = 'byok:clearApiKey';
+const IPC_BYOK_CHAT_SEND = 'byok:chatSend';
+const IPC_BYOK_CHAT_ABORT = 'byok:chatAbort';
 
 const IPC_WS_CONNECT = 'ws:connect';
 const IPC_WS_DISCONNECT = 'ws:disconnect';
@@ -68,14 +79,35 @@ const IPC_UPDATE_STATE = 'update:state';
 const IPC_WS_EVENT = 'ws:event';
 const IPC_WS_STATUS = 'ws:status';
 
+const IPC_USERDATA_GET_INFO = 'userdata:getInfo';
+const IPC_USERDATA_PICK_DIR = 'userdata:pickDir';
+const IPC_USERDATA_MIGRATE = 'userdata:migrate';
+const IPC_APP_RELAUNCH = 'app:relaunch';
+
+const IPC_SECURITY_APPENC_GET_STATUS = 'security:appEnc:getStatus';
+const IPC_SECURITY_APPENC_SET_ENABLED = 'security:appEnc:setEnabled';
+
 const DEFAULT_SERVER_BASE_URL = 'http://localhost:8000';
 
 const PARA_EXTERNAL_OPEN_ORIGINS_ENV = 'PARA_EXTERNAL_OPEN_ORIGINS';
 const PARA_EXTERNAL_OPEN_HOSTS_ENV = 'PARA_EXTERNAL_OPEN_HOSTS';
 
+type UserDataDirSource = 'env' | 'config' | 'default';
+
+let USERDATA_DIR_SOURCE: UserDataDirSource = 'default';
+
 const paraUserDataDirOverride = process.env.PARA_USER_DATA_DIR;
-if (typeof paraUserDataDirOverride === 'string' && paraUserDataDirOverride.trim() !== '') {
-  app.setPath('userData', paraUserDataDirOverride);
+const paraUserDataDirOverrideTrimmed = typeof paraUserDataDirOverride === 'string' ? paraUserDataDirOverride.trim() : '';
+if (paraUserDataDirOverrideTrimmed !== '') {
+  USERDATA_DIR_SOURCE = 'env';
+  app.setPath('userData', paraUserDataDirOverrideTrimmed);
+} else {
+  const installerConfig = tryReadParaInstallerConfigSync(app.getPath('appData'));
+  const configured = installerConfig?.userDataDir;
+  if (typeof configured === 'string' && configured.trim() !== '' && path.isAbsolute(configured)) {
+    USERDATA_DIR_SOURCE = 'config';
+    app.setPath('userData', path.normalize(configured));
+  }
 }
 
 function envFlagTruthy(name: string): boolean {
@@ -303,6 +335,12 @@ type AuthLoginPayload = {
   password: string;
 };
 
+type AuthRegisterPayload = {
+  email: string;
+  password: string;
+  inviteCode?: string;
+};
+
 type LoginResponse = {
   access_token: string;
   refresh_token: string;
@@ -526,12 +564,114 @@ function getAuthTokensFilePath(): string {
   return path.join(app.getPath('userData'), AUTH_TOKENS_FILENAME);
 }
 
+function getByokConfigFilePath(): string {
+  return path.join(app.getPath('userData'), BYOK_CONFIG_FILENAME);
+}
+
 function getPluginsRootDir(): string {
   return path.join(app.getPath('userData'), PLUGINS_DIRNAME);
 }
 
 function getPluginsStateFilePath(): string {
   return path.join(getPluginsRootDir(), PLUGINS_STATE_FILENAME);
+}
+
+function normalizeAbsPathForCompare(p: string): string {
+  const abs = path.resolve(p);
+  return process.platform === 'win32' ? abs.toLowerCase() : abs;
+}
+
+function isPathInside(childAbs: string, parentAbs: string): boolean {
+  const rel = path.relative(parentAbs, childAbs);
+  if (rel === '') return false;
+  if (rel.startsWith('..')) return false;
+  if (path.isAbsolute(rel)) return false;
+  return true;
+}
+
+async function migrateUserDataDirTo(targetDirRaw: string): Promise<{ targetDir: string }> {
+  try {
+    const sourceDir = app.getPath('userData');
+    const sourceAbs = path.resolve(sourceDir);
+    const targetTrimmed = targetDirRaw.trim();
+    if (!targetTrimmed) throw new Error('USERDATA_TARGET_EMPTY');
+    if (!path.isAbsolute(targetTrimmed)) throw new Error('USERDATA_TARGET_NOT_ABSOLUTE');
+
+    const targetAbs = path.resolve(targetTrimmed);
+
+    const srcCmp = normalizeAbsPathForCompare(sourceAbs);
+    const dstCmp = normalizeAbsPathForCompare(targetAbs);
+    if (srcCmp === dstCmp) throw new Error('USERDATA_TARGET_SAME_AS_CURRENT');
+    if (isPathInside(targetAbs, sourceAbs)) throw new Error('USERDATA_TARGET_INSIDE_CURRENT');
+
+    const srcStat = await fs.stat(sourceAbs).catch(() => null);
+    if (!srcStat || !srcStat.isDirectory()) throw new Error('USERDATA_SOURCE_NOT_DIR');
+
+    const dstStat = await fs.stat(targetAbs).catch(() => null);
+    if (dstStat && !dstStat.isDirectory()) throw new Error('USERDATA_TARGET_NOT_DIR');
+    if (dstStat) {
+      const items = await fs.readdir(targetAbs).catch(() => [] as string[]);
+      if (items.length > 0) throw new Error('USERDATA_TARGET_NOT_EMPTY');
+    }
+
+    await fs.mkdir(path.dirname(targetAbs), { recursive: true });
+
+    const tmpDir = path.join(
+      path.dirname(targetAbs),
+      `.para-userdata-migrate.${path.basename(targetAbs) || 'target'}.${process.pid}.${Date.now()}.tmp`
+    );
+
+    await fs.mkdir(tmpDir, { recursive: false });
+
+    let renamed = false;
+    try {
+      const entries = await fs.readdir(sourceAbs, { withFileTypes: true });
+      for (const ent of entries) {
+        const name = ent.name;
+        if (!name) continue;
+        const srcPath = path.join(sourceAbs, name);
+        const dstPath = path.join(tmpDir, name);
+        await fs.cp(srcPath, dstPath, { recursive: true, errorOnExist: true, force: false });
+      }
+
+      const probe = path.join(tmpDir, `.para-write-probe.${process.pid}.${Date.now()}`);
+      await fs.writeFile(probe, 'ok', { encoding: 'utf8' });
+      await fs.unlink(probe);
+
+      if (dstStat) {
+        const items = await fs.readdir(targetAbs).catch(() => [] as string[]);
+        if (items.length > 0) throw new Error('USERDATA_TARGET_NOT_EMPTY');
+        await fs.rmdir(targetAbs);
+      }
+
+      await fs.rename(tmpDir, targetAbs);
+      renamed = true;
+    } finally {
+      if (!renamed) {
+        try {
+          await fs.rm(tmpDir, { recursive: true, force: true });
+        } catch {
+        }
+      }
+    }
+
+    try {
+      await writeParaInstallerConfigAtomic(app.getPath('appData'), {
+        userDataDir: targetAbs,
+        version: 1,
+        source: 'in-app'
+      });
+    } catch {
+      throw new Error('USERDATA_CONFIG_WRITE_FAILED');
+    }
+
+    return { targetDir: targetAbs };
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message.startsWith('USERDATA_')) throw err;
+    const code = isObjectRecord(err) ? (err as { code?: unknown }).code : undefined;
+    if (code === 'EACCES' || code === 'EPERM') throw new Error('USERDATA_TARGET_NOT_WRITABLE');
+    throw new Error('USERDATA_MIGRATE_FAILED');
+  }
 }
 
 function safePathSegment(raw: string): string {
@@ -579,6 +719,14 @@ function isAuthTokensPayload(value: unknown): value is AuthTokensPayload {
 function isAuthLoginPayload(value: unknown): value is AuthLoginPayload {
   if (!isObjectRecord(value)) return false;
   return typeof value.email === 'string' && typeof value.password === 'string';
+}
+
+function isAuthRegisterPayload(value: unknown): value is AuthRegisterPayload {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.email !== 'string' || typeof rec.password !== 'string') return false;
+  if (rec.inviteCode != null && typeof rec.inviteCode !== 'string') return false;
+  return true;
 }
 
 function bytesToBuffer(bytes: unknown): Buffer | null {
@@ -1065,6 +1213,7 @@ class WsV1Client {
   private connecting = false;
   private pendingConnect = false;
   private statusDebounceTimer: NodeJS.Timeout | null = null;
+  private pingTimer: NodeJS.Timeout | null = null;
 
   private emitStatus(status: WsStatus['status']): void {
     safeSendToRenderer(IPC_WS_STATUS, {
@@ -1089,6 +1238,26 @@ class WsV1Client {
     }
   }
 
+  private clearPingTimer(): void {
+    if (this.pingTimer) {
+      clearInterval(this.pingTimer);
+      this.pingTimer = null;
+    }
+  }
+
+  private startPingTimer(): void {
+    if (this.pingTimer) return;
+    const intervalMs = 25_000;
+    this.pingTimer = setInterval(() => {
+      const ws = this.ws;
+      if (!ws || ws.readyState !== 1) return;
+      try {
+        ws.send(JSON.stringify({ type: 'PING', payload: { ts: Date.now() } }));
+      } catch {
+      }
+    }, intervalMs);
+  }
+
   private clearStatusDebounceTimer(): void {
     if (this.statusDebounceTimer) {
       clearTimeout(this.statusDebounceTimer);
@@ -1097,6 +1266,7 @@ class WsV1Client {
   }
 
   private cleanupSocket(): void {
+    this.clearPingTimer();
     if (!this.ws) return;
     try {
       this.ws.close(1000, 'client_cleanup');
@@ -1327,6 +1497,7 @@ class WsV1Client {
       this.connecting = false;
       this.reconnectAttempt = 0;
       this.emitStatus('connected');
+      this.startPingTimer();
 
       if (this.pendingConnect && this.shouldReconnect) {
         void this.connectOnce();
@@ -1366,6 +1537,7 @@ class WsV1Client {
     const onClose = () => {
       this.connecting = false;
       this.ws = null;
+      this.clearPingTimer();
       if (!this.shouldReconnect) {
         this.emitStatus('disconnected');
         return;
@@ -1438,16 +1610,11 @@ async function loginAndGetMe(email: string, password: string): Promise<AuthMeRes
 
   const baseUrl = getServerBaseUrl();
 
-  let loginResp: Response;
-  try {
-    loginResp = await fetch(buildApiUrl(baseUrl, '/api/v1/auth/login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password })
-    });
-  } catch {
-    throw new Error('NETWORK_ERROR');
-  }
+  const { response: loginResp, json: loginJson } = await fetchJson('/api/v1/auth/login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email, password })
+  });
 
   if (loginResp.status === 401) {
     throw new Error('BAD_CREDENTIALS');
@@ -1456,7 +1623,6 @@ async function loginAndGetMe(email: string, password: string): Promise<AuthMeRes
     throw new Error('AUTH_LOGIN_FAILED');
   }
 
-  const loginJson = await readJsonResponse(loginResp);
   if (!isLoginResponse(loginJson)) {
     throw new Error('AUTH_LOGIN_FAILED');
   }
@@ -1472,6 +1638,74 @@ async function loginAndGetMe(email: string, password: string): Promise<AuthMeRes
       method: 'GET',
       headers: {
         Authorization: `Bearer ${loginJson.access_token}`
+      }
+    });
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  if (meResp.status === 401) {
+    await clearAuthTokensOnDisk();
+    throw new Error('UNAUTHORIZED');
+  }
+  if (!meResp.ok) {
+    await clearAuthTokensOnDisk();
+    throw new Error('AUTH_ME_FAILED');
+  }
+
+  const meJson = await readJsonResponse(meResp);
+  if (!isAuthMeResponse(meJson)) {
+    await clearAuthTokensOnDisk();
+    throw new Error('AUTH_ME_FAILED');
+  }
+
+  return meJson;
+}
+
+async function registerAndGetMe(email: string, password: string, inviteCode?: string): Promise<AuthMeResponse> {
+  if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
+    throw new Error('FETCH_UNAVAILABLE');
+  }
+
+  const baseUrl = getServerBaseUrl();
+
+  const body: Record<string, unknown> = { email, password };
+  const trimmedInvite = typeof inviteCode === 'string' ? inviteCode.trim() : '';
+  if (trimmedInvite !== '') {
+    body.invite_code = trimmedInvite;
+  }
+
+  const { response: registerResp, json: registerJson } = await fetchJson('/api/v1/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+
+  if (!registerResp.ok) {
+    const detail = isObjectRecord(registerJson)
+      ? (registerJson as Record<string, unknown>).detail
+      : null;
+    if (typeof detail === 'string' && detail.trim() !== '') {
+      throw new Error(detail);
+    }
+    throw new Error('AUTH_REGISTER_FAILED');
+  }
+
+  if (!isLoginResponse(registerJson)) {
+    throw new Error('AUTH_REGISTER_FAILED');
+  }
+
+  await writeAuthTokensToDisk({
+    accessToken: registerJson.access_token,
+    refreshToken: registerJson.refresh_token
+  });
+
+  let meResp: Response;
+  try {
+    meResp = await fetch(buildApiUrl(baseUrl, '/api/v1/auth/me'), {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${registerJson.access_token}`
       }
     });
   } catch {
@@ -1550,6 +1784,54 @@ type AppEncConfig = {
   keys: Map<string, Buffer>;
 };
 
+type AppEncStatus = {
+  desiredEnabled: boolean;
+  effectiveEnabled: boolean;
+  error: string | null;
+};
+
+type ParaSecurityConfigFile = {
+  version: 1;
+  appEncEnabled?: boolean;
+};
+
+function getParaSecurityConfigPath(appDataDir: string): string {
+  return path.join(appDataDir, 'Para Desktop', 'para.security.json');
+}
+
+async function tryReadParaSecurityConfig(appDataDir: string): Promise<ParaSecurityConfigFile | null> {
+  const p = getParaSecurityConfigPath(appDataDir);
+  try {
+    const raw = await fs.readFile(p, { encoding: 'utf8' });
+    const parsed = JSON.parse(raw) as unknown;
+    if (typeof parsed !== 'object' || parsed === null) return null;
+    const rec = parsed as { version?: unknown; appEncEnabled?: unknown };
+    const version = rec.version;
+    if (version !== 1) return null;
+    return {
+      version: 1,
+      appEncEnabled: typeof rec.appEncEnabled === 'boolean' ? rec.appEncEnabled : undefined
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeParaSecurityConfigAtomic(appDataDir: string, cfg: ParaSecurityConfigFile): Promise<void> {
+  const configPath = getParaSecurityConfigPath(appDataDir);
+  const dir = path.dirname(configPath);
+  await fs.mkdir(dir, { recursive: true });
+
+  const payload: ParaSecurityConfigFile = {
+    version: 1,
+    appEncEnabled: Boolean(cfg.appEncEnabled)
+  };
+
+  const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(payload, null, 2), { encoding: 'utf8' });
+  await fs.rename(tmp, configPath);
+}
+
 function base64UrlEncode(buf: Buffer): string {
   return buf
     .toString('base64')
@@ -1583,22 +1865,119 @@ function parseAppEncKeys(raw: string): Map<string, Buffer> {
   return out;
 }
 
-const APP_ENC_CONFIG: AppEncConfig = (() => {
-  if (!envFlagTruthy('PARA_APPENC_ENABLED')) {
-    return { enabled: false, primaryKid: '', keys: new Map() };
+let APP_ENC_DESIRED_ENABLED = false;
+
+let APP_ENC_CONFIG: AppEncConfig = { enabled: false, primaryKid: '', keys: new Map() };
+let APP_ENC_STATUS: AppEncStatus = { desiredEnabled: false, effectiveEnabled: false, error: null };
+
+function setAppEncDisabledWithError(error: string | null): void {
+  APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
+  APP_ENC_STATUS = { desiredEnabled: false, effectiveEnabled: false, error };
+}
+
+async function initAppEncToggleFromDisk(): Promise<void> {
+  const appDataDir = app.getPath('appData');
+  let cfg: ParaSecurityConfigFile | null = null;
+  try {
+    cfg = await tryReadParaSecurityConfig(appDataDir);
+  } catch {
+    cfg = null;
+  }
+  APP_ENC_DESIRED_ENABLED = Boolean(cfg?.appEncEnabled);
+  recomputeAppEncFromEnvAndToggle();
+
+  if (APP_ENC_STATUS.desiredEnabled && !APP_ENC_STATUS.effectiveEnabled && APP_ENC_STATUS.error) {
+    const misconfig = APP_ENC_STATUS.error;
+    APP_ENC_DESIRED_ENABLED = false;
+    setAppEncDisabledWithError(misconfig);
+    try {
+      await writeParaSecurityConfigAtomic(appDataDir, { version: 1, appEncEnabled: false });
+    } catch {
+    }
+  }
+}
+
+function getAppEncStatusForRenderer(): AppEncStatus & { configPath: string } {
+  const appDataDir = app.getPath('appData');
+  return {
+    ...APP_ENC_STATUS,
+    configPath: getParaSecurityConfigPath(appDataDir)
+  };
+}
+
+async function setAppEncDesiredEnabledAndPersist(
+  enabled: boolean
+): Promise<AppEncStatus & { configPath: string }> {
+  const prev = Boolean(APP_ENC_DESIRED_ENABLED);
+  APP_ENC_DESIRED_ENABLED = Boolean(enabled);
+
+  const appDataDir = app.getPath('appData');
+  try {
+    await writeParaSecurityConfigAtomic(appDataDir, { version: 1, appEncEnabled: APP_ENC_DESIRED_ENABLED });
+  } catch {
+    APP_ENC_DESIRED_ENABLED = prev;
+    recomputeAppEncFromEnvAndToggle();
+    return {
+      ...getAppEncStatusForRenderer(),
+      error: 'APPENC_TOGGLE_PERSIST_FAILED'
+    };
+  }
+
+  recomputeAppEncFromEnvAndToggle();
+
+  if (enabled && !APP_ENC_STATUS.effectiveEnabled && APP_ENC_STATUS.error) {
+    const misconfig = APP_ENC_STATUS.error;
+    APP_ENC_DESIRED_ENABLED = false;
+    setAppEncDisabledWithError(misconfig);
+    try {
+      await writeParaSecurityConfigAtomic(appDataDir, { version: 1, appEncEnabled: false });
+    } catch {
+    }
+  }
+
+  return getAppEncStatusForRenderer();
+}
+
+function recomputeAppEncFromEnvAndToggle(): void {
+  const desiredEnabled = Boolean(APP_ENC_DESIRED_ENABLED);
+
+  if (!desiredEnabled) {
+    setAppEncDisabledWithError(null);
+    return;
   }
 
   const keysRaw = process.env.PARA_APPENC_KEYS;
   const primaryKid = typeof process.env.PARA_APPENC_PRIMARY_KID === 'string' ? process.env.PARA_APPENC_PRIMARY_KID.trim() : '';
-  if (typeof keysRaw !== 'string' || keysRaw.trim() === '' || primaryKid === '') {
-    throw new Error('APPENC_MISCONFIG');
+
+  if (typeof keysRaw !== 'string' || keysRaw.trim() === '') {
+    APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
+    APP_ENC_STATUS = { desiredEnabled: true, effectiveEnabled: false, error: 'APPENC_KEYS_MISSING' };
+    return;
   }
-  const keys = parseAppEncKeys(keysRaw);
+  if (primaryKid === '') {
+    APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
+    APP_ENC_STATUS = { desiredEnabled: true, effectiveEnabled: false, error: 'APPENC_PRIMARY_KID_MISSING' };
+    return;
+  }
+
+  let keys: Map<string, Buffer>;
+  try {
+    keys = parseAppEncKeys(keysRaw);
+  } catch {
+    APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
+    APP_ENC_STATUS = { desiredEnabled: true, effectiveEnabled: false, error: 'APPENC_KEYS_INVALID' };
+    return;
+  }
+
   if (!keys.has(primaryKid)) {
-    throw new Error('APPENC_MISCONFIG');
+    APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
+    APP_ENC_STATUS = { desiredEnabled: true, effectiveEnabled: false, error: 'APPENC_PRIMARY_KID_UNKNOWN' };
+    return;
   }
-  return { enabled: true, primaryKid, keys };
-})();
+
+  APP_ENC_CONFIG = { enabled: true, primaryKid, keys };
+  APP_ENC_STATUS = { desiredEnabled: true, effectiveEnabled: true, error: null };
+}
 
 function getHeaderValue(headers: Record<string, string> | undefined, name: string): string {
   if (!headers) return '';
@@ -1644,6 +2023,160 @@ function buildRespAad(args: { kid: string; ts: number; rid: string; status: numb
   );
 }
 
+function maybeEncryptJsonRequestWithAppEnc(args: {
+  urlObj: URL;
+  method: string;
+  contentType: string;
+  initForFetch: RequestInit;
+}): { initForFetch: RequestInit; requestRid: string | null } {
+  const canEncryptJsonBody =
+    APP_ENC_CONFIG.enabled &&
+    typeof args.initForFetch.body === 'string' &&
+    args.method !== 'GET' &&
+    args.method !== 'HEAD' &&
+    (args.initForFetch.body as string).trim() !== '' &&
+    isJsonContentType(args.contentType);
+
+  if (!canEncryptJsonBody) {
+    return { initForFetch: args.initForFetch, requestRid: null };
+  }
+
+  const rid = base64UrlEncode(crypto.randomBytes(16));
+  const ts = Math.floor(Date.now() / 1000);
+  const nonce = crypto.randomBytes(12);
+  const key = APP_ENC_CONFIG.keys.get(APP_ENC_CONFIG.primaryKid);
+  if (!key) {
+    return { initForFetch: args.initForFetch, requestRid: null };
+  }
+
+  const query = args.urlObj.search.startsWith('?') ? args.urlObj.search.slice(1) : '';
+  const aad = buildReqAad({
+    kid: APP_ENC_CONFIG.primaryKid,
+    ts,
+    rid,
+    method: args.method,
+    path: args.urlObj.pathname,
+    query
+  });
+
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
+  cipher.setAAD(Buffer.from(aad, 'utf8'));
+  const ciphertext = Buffer.concat([
+    cipher.update(Buffer.from(args.initForFetch.body as string, 'utf8')),
+    cipher.final()
+  ]);
+  const tag = cipher.getAuthTag();
+  const ct = base64UrlEncode(Buffer.concat([ciphertext, tag]));
+
+  const env = {
+    v: 1,
+    typ: 'req',
+    alg: 'A256GCM',
+    kid: APP_ENC_CONFIG.primaryKid,
+    ts,
+    rid,
+    nonce: base64UrlEncode(nonce),
+    ct
+  };
+
+  const headersOut = {
+    ...((args.initForFetch.headers ?? {}) as Record<string, string>),
+    'Content-Type': 'application/json',
+    'X-Para-Enc': 'v1',
+    'X-Para-Enc-Resp': 'v1'
+  };
+
+  return {
+    requestRid: rid,
+    initForFetch: {
+      ...args.initForFetch,
+      body: JSON.stringify(env),
+      headers: headersOut
+    }
+  };
+}
+
+function maybeDecryptJsonResponseWithAppEnc(args: {
+  response: Response;
+  json: unknown;
+  requestRid: string | null;
+}): unknown {
+  if (args.response.headers.get('X-Para-Enc') !== 'v1') {
+    return args.json;
+  }
+
+  if (!APP_ENC_CONFIG.enabled) throw new Error('APPENC_DISABLED');
+
+  if (!isObjectRecord(args.json)) throw new Error('API_FAILED');
+  const env = args.json as Record<string, unknown>;
+  if (env.v !== 1 || env.typ !== 'resp' || env.alg !== 'A256GCM') throw new Error('API_FAILED');
+  if (typeof env.kid !== 'string' || typeof env.ts !== 'number' || typeof env.rid !== 'string') throw new Error('API_FAILED');
+  if (typeof env.nonce !== 'string' || typeof env.ct !== 'string') throw new Error('API_FAILED');
+  if (args.requestRid && env.rid !== args.requestRid) throw new Error('API_FAILED');
+
+  const key = APP_ENC_CONFIG.keys.get(env.kid);
+  if (!key) throw new Error('API_FAILED');
+
+  const nonce = base64UrlDecode(env.nonce);
+  const ctAllBuf = base64UrlDecode(env.ct);
+  if (nonce.length !== 12 || ctAllBuf.length < 17) throw new Error('API_FAILED');
+
+  const ctAll = new Uint8Array(ctAllBuf.buffer, ctAllBuf.byteOffset, ctAllBuf.byteLength);
+  const ciphertext = ctAll.subarray(0, ctAll.length - 16);
+  const tag = ctAll.subarray(ctAll.length - 16);
+
+  const aad = buildRespAad({ kid: env.kid, ts: env.ts, rid: env.rid, status: args.response.status });
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
+  decipher.setAAD(Buffer.from(aad, 'utf8'));
+  decipher.setAuthTag(Buffer.from(tag));
+  const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const text = plain.toString('utf8');
+  return text.trim() === '' ? null : (JSON.parse(text) as unknown);
+}
+
+async function fetchJson(
+  apiPath: string,
+  init: RequestInit & { headers?: Record<string, string> }
+): Promise<{ response: Response; json: unknown }> {
+  if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
+    throw new Error('FETCH_UNAVAILABLE');
+  }
+
+  const baseUrl = getServerBaseUrl();
+
+  const fullUrl = buildApiUrl(baseUrl, apiPath);
+  const urlObj = new URL(fullUrl);
+  const method = String(init.method ?? 'GET').toUpperCase();
+  const headersIn = init.headers ?? {};
+  const contentType = getHeaderValue(headersIn, 'content-type');
+
+  let initForFetch: RequestInit = {
+    ...init,
+    headers: {
+      ...headersIn
+    }
+  };
+
+  const prepared = maybeEncryptJsonRequestWithAppEnc({
+    urlObj,
+    method,
+    contentType,
+    initForFetch
+  });
+  initForFetch = prepared.initForFetch;
+
+  let resp: Response;
+  try {
+    resp = await fetch(fullUrl, initForFetch);
+  } catch {
+    throw new Error('NETWORK_ERROR');
+  }
+
+  let json = await readJsonResponse(resp);
+  json = maybeDecryptJsonResponseWithAppEnc({ response: resp, json, requestRid: prepared.requestRid });
+  return { response: resp, json };
+}
+
 async function fetchAuthedJson(
   apiPath: string,
   init: RequestInit & { headers?: Record<string, string> }
@@ -1661,7 +2194,6 @@ async function fetchAuthedJson(
   const headersIn = init.headers ?? {};
   const contentType = getHeaderValue(headersIn, 'content-type');
 
-  let requestRid: string | null = null;
   let initForFetch: RequestInit = {
     ...init,
     headers: {
@@ -1670,60 +2202,13 @@ async function fetchAuthedJson(
     }
   };
 
-  const canEncryptJsonBody =
-    APP_ENC_CONFIG.enabled &&
-    typeof init.body === 'string' &&
-    isJsonContentType(contentType);
-
-  if (canEncryptJsonBody) {
-    const rid = base64UrlEncode(crypto.randomBytes(16));
-    const ts = Math.floor(Date.now() / 1000);
-    const nonce = crypto.randomBytes(12);
-    const key = APP_ENC_CONFIG.keys.get(APP_ENC_CONFIG.primaryKid);
-    if (!key) throw new Error('APPENC_MISCONFIG');
-
-    const query = urlObj.search.startsWith('?') ? urlObj.search.slice(1) : '';
-    const aad = buildReqAad({
-      kid: APP_ENC_CONFIG.primaryKid,
-      ts,
-      rid,
-      method,
-      path: urlObj.pathname,
-      query
-    });
-
-    const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce);
-    cipher.setAAD(Buffer.from(aad, 'utf8'));
-    const ciphertext = Buffer.concat([
-      cipher.update(Buffer.from(init.body as string, 'utf8')),
-      cipher.final()
-    ]);
-    const tag = cipher.getAuthTag();
-    const ct = base64UrlEncode(Buffer.concat([ciphertext, tag]));
-
-    const env = {
-      v: 1,
-      typ: 'req',
-      alg: 'A256GCM',
-      kid: APP_ENC_CONFIG.primaryKid,
-      ts,
-      rid,
-      nonce: base64UrlEncode(nonce),
-      ct
-    };
-
-    requestRid = rid;
-    initForFetch = {
-      ...initForFetch,
-      body: JSON.stringify(env),
-      headers: {
-        ...(initForFetch.headers as Record<string, string>),
-        'Content-Type': 'application/json',
-        'X-Para-Enc': 'v1',
-        'X-Para-Enc-Resp': 'v1'
-      }
-    };
-  }
+  const prepared = maybeEncryptJsonRequestWithAppEnc({
+    urlObj,
+    method,
+    contentType,
+    initForFetch
+  });
+  initForFetch = prepared.initForFetch;
 
   let resp: Response;
   try {
@@ -1738,30 +2223,8 @@ async function fetchAuthedJson(
   }
 
   let json = await readJsonResponse(resp);
-  if (resp.headers.get('X-Para-Enc') === 'v1') {
-    if (!isObjectRecord(json)) throw new Error('API_FAILED');
-    const env = json as Record<string, unknown>;
-    if (env.v !== 1 || env.typ !== 'resp' || env.alg !== 'A256GCM') throw new Error('API_FAILED');
-    if (typeof env.kid !== 'string' || typeof env.ts !== 'number' || typeof env.rid !== 'string') throw new Error('API_FAILED');
-    if (typeof env.nonce !== 'string' || typeof env.ct !== 'string') throw new Error('API_FAILED');
-    if (requestRid && env.rid !== requestRid) throw new Error('API_FAILED');
-    const key = APP_ENC_CONFIG.keys.get(env.kid);
-    if (!key) throw new Error('API_FAILED');
 
-    const nonce = base64UrlDecode(env.nonce);
-    const ctAll = base64UrlDecode(env.ct);
-    if (nonce.length !== 12 || ctAll.length < 17) throw new Error('API_FAILED');
-    const ciphertext = ctAll.slice(0, ctAll.length - 16);
-    const tag = ctAll.slice(ctAll.length - 16);
-
-    const aad = buildRespAad({ kid: env.kid, ts: env.ts, rid: env.rid, status: resp.status });
-    const decipher = crypto.createDecipheriv('aes-256-gcm', key, nonce);
-    decipher.setAAD(Buffer.from(aad, 'utf8'));
-    decipher.setAuthTag(tag);
-    const plain = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    const text = plain.toString('utf8');
-    json = text.trim() === '' ? null : (JSON.parse(text) as unknown);
-  }
+  json = maybeDecryptJsonResponseWithAppEnc({ response: resp, json, requestRid: prepared.requestRid });
 
   return { response: resp, json };
 }
@@ -2475,6 +2938,196 @@ function isSecureTokenStorageAvailable(): boolean {
   return true;
 }
 
+type ByokConfigFile = {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  api_key_enc: string | null;
+};
+
+type ByokConfigPublic = {
+  enabled: boolean;
+  base_url: string;
+  model: string;
+  api_key_present: boolean;
+  secure_storage_available: boolean;
+};
+
+let byokEphemeralApiKey: string | null = null;
+
+function isByokConfigFile(value: unknown): value is ByokConfigFile {
+  if (!isObjectRecord(value)) return false;
+  const v = value as Record<string, unknown>;
+  const enabled = v.enabled;
+  const baseUrl = v.base_url;
+  const model = v.model;
+  const apiKeyEnc = v.api_key_enc;
+  if (typeof enabled !== 'boolean') return false;
+  if (typeof baseUrl !== 'string') return false;
+  if (typeof model !== 'string') return false;
+  if (!(apiKeyEnc === null || typeof apiKeyEnc === 'string')) return false;
+  return true;
+}
+
+function normalizeByokBaseUrl(raw: string): string {
+  const trimmed = raw.trim();
+  if (trimmed === '') return '';
+  let u: URL;
+  try {
+    u = new URL(trimmed);
+  } catch {
+    throw new Error('BYOK_BASE_URL_INVALID');
+  }
+  if (!(u.protocol === 'http:' || u.protocol === 'https:')) {
+    throw new Error('BYOK_BASE_URL_INVALID');
+  }
+  const s = u.toString();
+  return s.endsWith('/') ? s.slice(0, s.length - 1) : s;
+}
+
+function normalizeByokModel(raw: string): string {
+  return raw.trim();
+}
+
+async function readByokConfigFromDisk(): Promise<ByokConfigFile> {
+  const filePath = getByokConfigFilePath();
+  let raw: string;
+  try {
+    raw = await fs.readFile(filePath, { encoding: 'utf8' });
+  } catch (err: unknown) {
+    const code = isObjectRecord(err) ? err.code : undefined;
+    if (code === 'ENOENT') {
+      return { enabled: false, base_url: '', model: '', api_key_enc: null };
+    }
+    return { enabled: false, base_url: '', model: '', api_key_enc: null };
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return { enabled: false, base_url: '', model: '', api_key_enc: null };
+  }
+
+  if (!isByokConfigFile(parsed)) {
+    return { enabled: false, base_url: '', model: '', api_key_enc: null };
+  }
+
+  return {
+    enabled: parsed.enabled,
+    base_url: typeof parsed.base_url === 'string' ? parsed.base_url : '',
+    model: typeof parsed.model === 'string' ? parsed.model : '',
+    api_key_enc: parsed.api_key_enc
+  };
+}
+
+async function writeByokConfigToDisk(next: ByokConfigFile): Promise<void> {
+  const userDataDir = app.getPath('userData');
+  await fs.mkdir(userDataDir, { recursive: true });
+
+  const filePath = getByokConfigFilePath();
+  const tmpPath = `${filePath}.tmp`;
+  await fs.writeFile(tmpPath, JSON.stringify(next), { encoding: 'utf8' });
+  await fs.rename(tmpPath, filePath);
+}
+
+function toByokPublic(cfg: ByokConfigFile): ByokConfigPublic {
+  const ephemeralPresent = typeof byokEphemeralApiKey === 'string' && byokEphemeralApiKey.trim() !== '';
+  return {
+    enabled: cfg.enabled,
+    base_url: cfg.base_url,
+    model: cfg.model,
+    api_key_present:
+      (typeof cfg.api_key_enc === 'string' && cfg.api_key_enc.trim() !== '') ||
+      ephemeralPresent,
+    secure_storage_available: isSecureTokenStorageAvailable()
+  };
+}
+
+let byokInFlight: { controller: AbortController } | null = null;
+
+async function byokChatCompletionsOnce(payload: { text: string }): Promise<{ content: string }> {
+  const cfg = await readByokConfigFromDisk();
+  if (!cfg.enabled) throw new Error('BYOK_DISABLED');
+
+  const baseUrl = normalizeByokBaseUrl(cfg.base_url);
+  const model = normalizeByokModel(cfg.model);
+  if (!baseUrl || !model) throw new Error('BYOK_CONFIG_INCOMPLETE');
+
+  let apiKey: string | null = null;
+  if (typeof cfg.api_key_enc === 'string' && cfg.api_key_enc.trim() !== '') {
+    if (!isSecureTokenStorageAvailable()) {
+      throw new Error('SAFE_STORAGE_UNAVAILABLE');
+    }
+    if (!safeStorage.isEncryptionAvailable()) {
+      throw new Error('SAFE_STORAGE_UNAVAILABLE');
+    }
+
+    try {
+      apiKey = safeStorage.decryptString(Buffer.from(cfg.api_key_enc, 'base64'));
+    } catch {
+      throw new Error('BYOK_KEY_DECRYPT_FAILED');
+    }
+  } else if (process.env.NODE_ENV === 'test') {
+    apiKey = typeof byokEphemeralApiKey === 'string' ? byokEphemeralApiKey : null;
+  }
+
+  if (!apiKey || apiKey.trim() === '') throw new Error('BYOK_CONFIG_INCOMPLETE');
+
+  if (byokInFlight) {
+    throw new Error('BYOK_BUSY');
+  }
+
+  const controller = new AbortController();
+  byokInFlight = { controller };
+
+  try {
+    const url = new URL('/v1/chat/completions', baseUrl);
+
+    let resp: Response;
+    try {
+      resp = await fetch(url.toString(), {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model,
+          messages: [{ role: 'user', content: payload.text }]
+        })
+      });
+    } catch (err: unknown) {
+      const name = isObjectRecord(err) ? err.name : undefined;
+      if (name === 'AbortError') throw new Error('ABORTED');
+      throw new Error('NETWORK_ERROR');
+    }
+
+    if (!resp.ok) {
+      throw new Error('API_FAILED');
+    }
+
+    let json: unknown;
+    try {
+      json = await resp.json();
+    } catch {
+      throw new Error('API_FAILED');
+    }
+
+    const choices = isObjectRecord(json) ? (json as Record<string, unknown>).choices : undefined;
+    if (!Array.isArray(choices) || choices.length === 0) throw new Error('API_FAILED');
+    const first = choices[0];
+    const msg = isObjectRecord(first) ? (first as Record<string, unknown>).message : undefined;
+    const content = isObjectRecord(msg) ? (msg as Record<string, unknown>).content : undefined;
+    if (typeof content !== 'string') throw new Error('API_FAILED');
+
+    return { content };
+  } finally {
+    byokInFlight = null;
+  }
+}
+
 function isStoredAuthTokensFile(value: unknown): value is StoredAuthTokensFile {
   if (!isObjectRecord(value)) return false;
   return (
@@ -2578,6 +3231,83 @@ async function clearAuthTokensOnDisk(): Promise<void> {
   }
 }
 
+function registerByokIpcHandlers() {
+  handleTrustedIpc(IPC_BYOK_GET_CONFIG, async (): Promise<ByokConfigPublic> => {
+    const cfg = await readByokConfigFromDisk();
+    return toByokPublic(cfg);
+  });
+
+  handleTrustedIpc(IPC_BYOK_SET_CONFIG, async (_event, payload: unknown): Promise<ByokConfigPublic> => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const enabled = payload.enabled;
+    const baseUrl = payload.base_url;
+    const model = payload.model;
+    if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
+    if (typeof baseUrl !== 'string') throw new Error('INVALID_PAYLOAD');
+    if (typeof model !== 'string') throw new Error('INVALID_PAYLOAD');
+
+    const prev = await readByokConfigFromDisk();
+    const next: ByokConfigFile = {
+      ...prev,
+      enabled,
+      base_url: normalizeByokBaseUrl(baseUrl),
+      model: normalizeByokModel(model)
+    };
+    await writeByokConfigToDisk(next);
+    return toByokPublic(next);
+  });
+
+  handleTrustedIpc(IPC_BYOK_UPDATE_API_KEY, async (_event, payload: unknown): Promise<ByokConfigPublic> => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const apiKey = payload.api_key;
+    if (typeof apiKey !== 'string') throw new Error('INVALID_PAYLOAD');
+    const trimmed = apiKey.trim();
+    if (trimmed === '') throw new Error('INVALID_PAYLOAD');
+
+    const prev = await readByokConfigFromDisk();
+    if (!isSecureTokenStorageAvailable() || !safeStorage.isEncryptionAvailable()) {
+      if (process.env.NODE_ENV === 'test') {
+        byokEphemeralApiKey = trimmed;
+        const next: ByokConfigFile = { ...prev, api_key_enc: null };
+        await writeByokConfigToDisk(next);
+        return toByokPublic(next);
+      }
+      throw new Error('SAFE_STORAGE_UNAVAILABLE');
+    }
+
+    byokEphemeralApiKey = null;
+    const enc = safeStorage.encryptString(trimmed).toString('base64');
+    const next: ByokConfigFile = { ...prev, api_key_enc: enc };
+    await writeByokConfigToDisk(next);
+    return toByokPublic(next);
+  });
+
+  handleTrustedIpc(IPC_BYOK_CLEAR_API_KEY, async (): Promise<ByokConfigPublic> => {
+    byokEphemeralApiKey = null;
+    const prev = await readByokConfigFromDisk();
+    const next: ByokConfigFile = { ...prev, api_key_enc: null };
+    await writeByokConfigToDisk(next);
+    return toByokPublic(next);
+  });
+
+  handleTrustedIpc(IPC_BYOK_CHAT_SEND, async (_event, payload: unknown): Promise<{ content: string }> => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const text = payload.text;
+    if (typeof text !== 'string') throw new Error('INVALID_PAYLOAD');
+    const trimmed = text.trim();
+    if (!trimmed) throw new Error('INVALID_PAYLOAD');
+    return byokChatCompletionsOnce({ text: trimmed });
+  });
+
+  handleTrustedIpc(IPC_BYOK_CHAT_ABORT, async (): Promise<{ ok: boolean }> => {
+    try {
+      byokInFlight?.controller.abort();
+    } catch {
+    }
+    return { ok: true };
+  });
+}
+
 function registerAuthIpcHandlers() {
   handleTrustedIpc(IPC_AUTH_SET_TOKENS, async (_event, payload: unknown) => {
     if (!isAuthTokensPayload(payload)) {
@@ -2600,6 +3330,14 @@ function registerAuthIpcHandlers() {
     }
 
     return loginAndGetMe(payload.email, payload.password);
+  });
+
+  handleTrustedIpc(IPC_AUTH_REGISTER, async (_event, payload: unknown) => {
+    if (!isAuthRegisterPayload(payload)) {
+      throw new Error('INVALID_PAYLOAD');
+    }
+
+    return registerAndGetMe(payload.email, payload.password, payload.inviteCode);
   });
 
   handleTrustedIpc(IPC_AUTH_ME, async () => {
@@ -3034,6 +3772,38 @@ function getDisabledUpdateState(): UpdateState {
   };
 }
 
+async function getParaAppVersion(): Promise<string> {
+  const envV = process.env.PARA_APP_VERSION;
+  if (typeof envV === 'string' && envV.trim() !== '') return envV.trim();
+
+  let vFromApp = 'unknown';
+  try {
+    vFromApp = app.getVersion();
+  } catch {
+    vFromApp = 'unknown';
+  }
+
+  const electronV = process.versions.electron;
+  const appVersionLooksLikeElectron = typeof electronV === 'string' && electronV.trim() !== '' && vFromApp === electronV;
+  if (app.isPackaged && !appVersionLooksLikeElectron) return vFromApp;
+
+  try {
+    const pkgPath = path.resolve(__dirname, '..', '..', 'package.json');
+    const raw = await fs.readFile(pkgPath, 'utf8');
+    const obj = JSON.parse(raw) as { version?: unknown };
+    if (typeof obj.version === 'string' && obj.version.trim() !== '') return obj.version.trim();
+  } catch {
+  }
+
+  return vFromApp;
+}
+
+function registerAppIpcHandlers() {
+  handleTrustedIpc('app:getVersion', async (): Promise<string> => {
+    return getParaAppVersion();
+  });
+}
+
 function registerUpdateIpcHandlers() {
   handleTrustedIpc(IPC_UPDATE_GET_STATE, async (): Promise<UpdateState> => {
     return updateManager ? updateManager.getState() : getDisabledUpdateState();
@@ -3049,6 +3819,63 @@ function registerUpdateIpcHandlers() {
 
   handleTrustedIpc(IPC_UPDATE_INSTALL, async (): Promise<UpdateState> => {
     return updateManager ? updateManager.installUpdate() : getDisabledUpdateState();
+  });
+}
+
+function registerUserDataIpcHandlers() {
+  handleTrustedIpc(IPC_USERDATA_GET_INFO, async () => {
+    const appDataDir = app.getPath('appData');
+    return {
+      userDataDir: app.getPath('userData'),
+      source: USERDATA_DIR_SOURCE,
+      configPath: getParaInstallerConfigPath(appDataDir),
+      envOverrideActive: typeof process.env.PARA_USER_DATA_DIR === 'string' && process.env.PARA_USER_DATA_DIR.trim() !== ''
+    };
+  });
+
+  handleTrustedIpc(IPC_USERDATA_PICK_DIR, async () => {
+    const win = BrowserWindow.getFocusedWindow() ?? mainWindow;
+    const options: Electron.OpenDialogOptions = {
+      title: '选择数据目录',
+      properties: ['openDirectory', 'createDirectory'] as ('openDirectory' | 'createDirectory')[]
+    };
+
+    let result: Electron.OpenDialogReturnValue;
+    if (win) {
+      result = await dialog.showOpenDialog(win, options);
+    } else {
+      result = await dialog.showOpenDialog(options);
+    }
+
+    if (result.canceled) return { canceled: true, path: null as string | null };
+    const selected = result.filePaths?.[0];
+    const p = typeof selected === 'string' && selected.trim() !== '' ? selected : null;
+    return { canceled: false, path: p };
+  });
+
+  handleTrustedIpc(IPC_USERDATA_MIGRATE, async (_event, payload: unknown) => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const targetDir = payload.targetDir;
+    if (typeof targetDir !== 'string') throw new Error('INVALID_PAYLOAD');
+    return migrateUserDataDirTo(targetDir);
+  });
+
+  handleTrustedIpc(IPC_APP_RELAUNCH, async () => {
+    app.relaunch();
+    app.exit(0);
+  });
+}
+
+function registerSecurityIpcHandlers() {
+  handleTrustedIpc(IPC_SECURITY_APPENC_GET_STATUS, async () => {
+    return getAppEncStatusForRenderer();
+  });
+
+  handleTrustedIpc(IPC_SECURITY_APPENC_SET_ENABLED, async (_event, payload: unknown) => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const enabled = payload.enabled;
+    if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
+    return setAppEncDesiredEnabledAndPersist(enabled);
   });
 }
 
@@ -3238,13 +4065,21 @@ function setupTray(): void {
 app.whenReady().then(async () => {
   setupDefaultDenyPermissions();
 
+  const appVersion = await getParaAppVersion();
+  console.log(`[main] app_version=${appVersion}`);
+
+  await initAppEncToggleFromDisk();
+
   updateManager = await createUpdateManager({
     onState: (state) => {
       safeSendToAllRenderers(IPC_UPDATE_STATE, state);
     }
   });
 
+  registerSecurityIpcHandlers();
+  registerAppIpcHandlers();
   registerAuthIpcHandlers();
+  registerByokIpcHandlers();
   registerWsIpcHandlers();
   registerSavesAndPersonasIpcHandlers();
   registerKnowledgeIpcHandlers();
@@ -3256,6 +4091,7 @@ app.whenReady().then(async () => {
   registerAssistantIpcHandlers();
   registerPluginsIpcHandlers();
   registerUpdateIpcHandlers();
+  registerUserDataIpcHandlers();
 
   await pluginManager.init();
   featureFlagsPoller.start();

@@ -52,10 +52,26 @@ export type PluginStatus = {
 
 export type DesktopApi = {
   ping: () => Promise<string>;
+  getAppVersion: () => Promise<string>;
   versions: {
     electron: string;
     node: string;
     chrome: string;
+  };
+  labsEnabled: boolean;
+  security: {
+    getAppEncStatus: () => Promise<{
+      desiredEnabled: boolean;
+      effectiveEnabled: boolean;
+      error: string | null;
+      configPath: string;
+    }>;
+    setAppEncEnabled: (enabled: boolean) => Promise<{
+      desiredEnabled: boolean;
+      effectiveEnabled: boolean;
+      error: string | null;
+      configPath: string;
+    }>;
   };
   knowledge: {
     uploadMaterial: (payload: {
@@ -239,6 +255,7 @@ export type DesktopApi = {
   };
   auth: {
     login: (email: string, password: string) => Promise<{ user_id: string | number; email: string }>;
+    register: (email: string, password: string, inviteCode?: string) => Promise<{ user_id: string | number; email: string }>;
     me: () => Promise<{ user_id: string | number; email: string }>;
     logout: () => Promise<void>;
   };
@@ -256,11 +273,55 @@ export type DesktopApi = {
     onEvent: (handler: (frame: unknown) => void) => () => void;
     onStatus: (handler: (status: unknown) => void) => () => void;
   };
+  byok: {
+    getConfig: () => Promise<{
+      enabled: boolean;
+      base_url: string;
+      model: string;
+      api_key_present: boolean;
+      secure_storage_available: boolean;
+    }>;
+    setConfig: (payload: {
+      enabled: boolean;
+      base_url: string;
+      model: string;
+    }) => Promise<{
+      enabled: boolean;
+      base_url: string;
+      model: string;
+      api_key_present: boolean;
+      secure_storage_available: boolean;
+    }>;
+    updateApiKey: (apiKey: string) => Promise<{
+      enabled: boolean;
+      base_url: string;
+      model: string;
+      api_key_present: boolean;
+      secure_storage_available: boolean;
+    }>;
+    clearApiKey: () => Promise<{
+      enabled: boolean;
+      base_url: string;
+      model: string;
+      api_key_present: boolean;
+      secure_storage_available: boolean;
+    }>;
+    chatSend: (text: string) => Promise<{ content: string }>;
+    chatAbort: () => Promise<{ ok: boolean }>;
+  };
   assistant: {
     setEnabled: (enabled: boolean, saveId: string) => Promise<void>;
     setIdleEnabled: (enabled: boolean) => Promise<void>;
     onSuggestion: (handler: (payload: { suggestion: string; category: string }) => void) => () => void;
     writeClipboardText: (text: string) => Promise<void>;
+  };
+  userData: {
+    getInfo: () => Promise<{ userDataDir: string; source: string; configPath: string; envOverrideActive: boolean }>;
+    pickDir: () => Promise<{ canceled: boolean; path: string | null }>;
+    migrate: (targetDir: string) => Promise<{ targetDir: string }>;
+  };
+  app: {
+    relaunch: () => Promise<void>;
   };
 };
 

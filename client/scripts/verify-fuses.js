@@ -6,6 +6,13 @@ const path = require('node:path');
 
 const fuses = require('@electron/fuses');
 
+const EXCLUDED_HELPER_BINARIES = new Set([
+  'chrome-sandbox',
+  'chrome_crashpad_handler',
+  'chrome-sandbox.exe',
+  'chrome_crashpad_handler.exe'
+]);
+
 function usage() {
   console.log(`Usage:
   node scripts/verify-fuses.js --exe <path>
@@ -30,20 +37,184 @@ function parseArgs(argv) {
   return out;
 }
 
-function resolvePackagedElectronPath({ appOutDir, platform, productFilename }) {
-  if (platform === 'win32') {
-    return path.join(appOutDir, `${productFilename}.exe`);
+function uniqTruthy(list) {
+  const out = [];
+  const seen = new Set();
+  for (const v of list || []) {
+    const s = typeof v === 'string' ? v.trim() : '';
+    if (!s) continue;
+    if (seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
   }
-  if (platform === 'darwin') {
-    return path.join(appOutDir, `${productFilename}.app`, 'Contents', 'MacOS', productFilename);
-  }
-  return path.join(appOutDir, productFilename);
+  return out;
 }
 
-function inferProductFilename() {
+function safeReaddirBasenames(dir) {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+}
+
+function isExcludedBinaryName(name) {
+  return EXCLUDED_HELPER_BINARIES.has(name);
+}
+
+function isPosixExecutableFile(filePath) {
+  try {
+    fs.accessSync(filePath, fs.constants.X_OK);
+    const st = fs.statSync(filePath);
+    return st.isFile();
+  } catch {
+    return false;
+  }
+}
+
+function isProbablyMainExecutableCandidate({ name, fullPath, platform }) {
+  if (!name || isExcludedBinaryName(name)) return false;
+
+  if (platform === 'win32') {
+    if (!name.toLowerCase().endsWith('.exe')) return false;
+    try {
+      return fs.statSync(fullPath).isFile();
+    } catch {
+      return false;
+    }
+  }
+
+  if (platform === 'darwin') {
+    return isPosixExecutableFile(fullPath);
+  }
+
+  // linux：避免误选 .so/.pak/.dat 等资源。
+  if (name.includes('.')) return false;
+  return isPosixExecutableFile(fullPath);
+}
+
+function pickLargestBySize(candidates) {
+  let best = null;
+  for (const c of candidates) {
+    if (!c) continue;
+    let size = 0;
+    try {
+      size = fs.statSync(c.fullPath).size;
+    } catch {
+      size = 0;
+    }
+    if (!best || size > best.size) best = { ...c, size };
+  }
+  return best;
+}
+
+function resolveCandidateExecutablePath({ appOutDir, platform, executableBaseName }) {
+  if (platform === 'win32') {
+    return path.join(appOutDir, `${executableBaseName}.exe`);
+  }
+  if (platform === 'darwin') {
+    const appBundleDir = appOutDir.endsWith('.app')
+      ? appOutDir
+      : path.join(appOutDir, `${executableBaseName}.app`);
+    return path.join(appBundleDir, 'Contents', 'MacOS', executableBaseName);
+  }
+  return path.join(appOutDir, executableBaseName);
+}
+
+function locateMainExecutablePath({ appOutDir, platform, candidateBaseNames }) {
+  const dedupedBaseNames = uniqTruthy(candidateBaseNames);
+  const tried = [];
+
+  for (const baseName of dedupedBaseNames) {
+    const p = resolveCandidateExecutablePath({ appOutDir, platform, executableBaseName: baseName });
+    tried.push(p);
+    const name = path.basename(p);
+    if (!fs.existsSync(p)) continue;
+    if (!isProbablyMainExecutableCandidate({ name, fullPath: p, platform })) continue;
+    return { executablePath: p, candidateBaseNames: dedupedBaseNames, triedPaths: tried };
+  }
+
+  // 扫描兜底：仅在候选都失败时启用。
+  let extraListing = null;
+  if (platform === 'darwin') {
+    const topListing = safeReaddirBasenames(appOutDir);
+    const appDirs = topListing.filter((n) => n.endsWith('.app'));
+    const appDirName =
+      appDirs.find((n) => dedupedBaseNames.some((bn) => n === `${bn}.app`)) ||
+      (appDirs.length === 1 ? appDirs[0] : null);
+
+    const appBundleDir = appOutDir.endsWith('.app') ? appOutDir : appDirName ? path.join(appOutDir, appDirName) : null;
+    if (appBundleDir) {
+      const macosDir = path.join(appBundleDir, 'Contents', 'MacOS');
+      const macosListing = safeReaddirBasenames(macosDir);
+      extraListing = { macosDir, macosListing };
+
+      const macosCandidates = macosListing
+        .filter((n) => !isExcludedBinaryName(n))
+        .map((n) => ({ name: n, fullPath: path.join(macosDir, n) }))
+        .filter((c) => isProbablyMainExecutableCandidate({ name: c.name, fullPath: c.fullPath, platform }));
+
+      const best = pickLargestBySize(macosCandidates);
+      if (best) {
+        return { executablePath: best.fullPath, candidateBaseNames: dedupedBaseNames, triedPaths: tried };
+      }
+    }
+  } else {
+    const listing = safeReaddirBasenames(appOutDir);
+    const fileCandidates = listing
+      .filter((n) => !isExcludedBinaryName(n))
+      .map((n) => ({ name: n, fullPath: path.join(appOutDir, n) }))
+      .filter((c) => isProbablyMainExecutableCandidate({ name: c.name, fullPath: c.fullPath, platform }));
+
+    const best = pickLargestBySize(fileCandidates);
+    if (best) {
+      return { executablePath: best.fullPath, candidateBaseNames: dedupedBaseNames, triedPaths: tried };
+    }
+  }
+
+  const listing = safeReaddirBasenames(appOutDir);
+  const candidateList = dedupedBaseNames.length > 0 ? JSON.stringify(dedupedBaseNames) : '[]';
+  const listingList = listing.length > 0 ? JSON.stringify(listing) : '[]';
+  const triedList = tried.length > 0 ? JSON.stringify(tried.map((p) => path.basename(p))) : '[]';
+  const extra = extraListing
+    ? ` macosDir=${extraListing.macosDir} macosListing=${JSON.stringify(extraListing.macosListing || [])}`
+    : '';
+
+  throw new Error(
+    `[verify-fuses] Packaged executable not found. ` +
+      `appOutDir=${appOutDir} platform=${platform} candidates=${candidateList} ` +
+      `triedBasenames=${triedList} listing=${listingList}${extra}`
+  );
+}
+
+function inferExecutableBaseNames(platform) {
   // eslint-disable-next-line global-require
   const pkg = require('../package.json');
-  return pkg.name;
+  const build = (pkg && pkg.build) || {};
+  const platformKey = platform === 'win32' ? 'win' : platform === 'darwin' ? 'mac' : 'linux';
+  const buildPlatform = (build && build[platformKey]) || {};
+
+  return uniqTruthy([
+    // 1) build.<platform>.executableName / build.executableName
+    buildPlatform.executableName,
+    build.executableName,
+    // 2) package.json name（当前项目 Linux dir 产物为该值）
+    pkg.name,
+    // 3) 最后才考虑 productName（可能与可执行文件名不一致，尤其是 Linux dir）
+    typeof build.productName === 'string' ? build.productName : null
+  ]);
+}
+
+function inferDefaultAppOutDir(platform) {
+  const clientRoot = path.resolve(__dirname, '..');
+
+  if (platform === 'win32') return path.join(clientRoot, 'dist-electron', 'win-unpacked');
+  if (platform === 'darwin') {
+    const macDir = path.join(clientRoot, 'dist-electron', 'mac');
+    if (fs.existsSync(macDir)) return macDir;
+    return path.join(clientRoot, 'dist-electron', 'mac-unpacked');
+  }
+  return path.join(clientRoot, 'dist-electron', 'linux-unpacked');
 }
 
 function getCurrentFuses(executablePath) {
@@ -109,21 +280,25 @@ async function main() {
   }
 
   let executablePath = args.exe;
-  if (!executablePath) {
-    if (!args.platform || !args.appOutDir) {
-      usage();
-      process.exit(1);
-    }
-    const productFilename = inferProductFilename();
-    executablePath = resolvePackagedElectronPath({
-      appOutDir: args.appOutDir,
-      platform: args.platform,
-      productFilename
-    });
+  let platform = args.platform;
+  let appOutDir = args.appOutDir;
+
+  if (!platform) platform = process.platform;
+  if (!appOutDir) appOutDir = inferDefaultAppOutDir(platform);
+
+  // npm -C client 会把 cwd 切到 client/；但在其它调用方式下也应稳定工作。
+  if (appOutDir && !path.isAbsolute(appOutDir)) {
+    appOutDir = path.resolve(process.cwd(), appOutDir);
   }
 
-  if (!fs.existsSync(executablePath)) {
-    throw new Error(`Executable not found: ${executablePath}`);
+  if (!executablePath) {
+    const baseNames = inferExecutableBaseNames(platform);
+    const located = locateMainExecutablePath({ appOutDir, platform, candidateBaseNames: baseNames });
+    executablePath = located.executablePath;
+  }
+
+  if (!executablePath || !fs.existsSync(executablePath)) {
+    throw new Error(`[verify-fuses] Executable not found: ${executablePath || '<empty>'}`);
   }
 
   const wire = await getCurrentFuses(executablePath);

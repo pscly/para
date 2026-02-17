@@ -193,12 +193,47 @@ type UpdateState = {
   source: string;
 };
 
+type UserDataInfo = {
+  userDataDir: string;
+  source: string;
+  configPath: string;
+  envOverrideActive: boolean;
+};
+
+type UserDataPickDirResult = {
+  canceled: boolean;
+  path: string | null;
+};
+
+type UserDataMigrateResult = {
+  targetDir: string;
+};
+
+type AppEncStatus = {
+  desiredEnabled: boolean;
+  effectiveEnabled: boolean;
+  error: string | null;
+  configPath: string;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
+  getAppVersion: async (): Promise<string> => {
+    return ipcRenderer.invoke('app:getVersion') as Promise<string>;
+  },
   versions: {
     electron: process.versions.electron,
     node: process.versions.node,
     chrome: process.versions.chrome
+  },
+  labsEnabled: process.env.PARA_LABS === '1',
+  security: {
+    getAppEncStatus: async (): Promise<AppEncStatus> => {
+      return ipcRenderer.invoke('security:appEnc:getStatus') as Promise<AppEncStatus>;
+    },
+    setAppEncEnabled: async (enabled: boolean): Promise<AppEncStatus> => {
+      return ipcRenderer.invoke('security:appEnc:setEnabled', { enabled }) as Promise<AppEncStatus>;
+    }
   },
   knowledge: {
     uploadMaterial: async (payload: KnowledgeUploadPayload): Promise<KnowledgeMaterial> => {
@@ -305,6 +340,9 @@ contextBridge.exposeInMainWorld('desktopApi', {
     login: async (email: string, password: string): Promise<AuthMe> => {
       return ipcRenderer.invoke('auth:login', { email, password }) as Promise<AuthMe>;
     },
+    register: async (email: string, password: string, inviteCode?: string): Promise<AuthMe> => {
+      return ipcRenderer.invoke('auth:register', { email, password, inviteCode }) as Promise<AuthMe>;
+    },
     me: async (): Promise<AuthMe> => {
       return ipcRenderer.invoke('auth:me') as Promise<AuthMe>;
     },
@@ -363,6 +401,50 @@ contextBridge.exposeInMainWorld('desktopApi', {
       return () => ipcRenderer.removeListener('ws:status', listener);
     }
   },
+  byok: {
+    getConfig: async () => {
+      return ipcRenderer.invoke('byok:getConfig') as Promise<{
+        enabled: boolean;
+        base_url: string;
+        model: string;
+        api_key_present: boolean;
+        secure_storage_available: boolean;
+      }>;
+    },
+    setConfig: async (payload: { enabled: boolean; base_url: string; model: string }) => {
+      return ipcRenderer.invoke('byok:setConfig', payload) as Promise<{
+        enabled: boolean;
+        base_url: string;
+        model: string;
+        api_key_present: boolean;
+        secure_storage_available: boolean;
+      }>;
+    },
+    updateApiKey: async (apiKey: string) => {
+      return ipcRenderer.invoke('byok:updateApiKey', { api_key: apiKey }) as Promise<{
+        enabled: boolean;
+        base_url: string;
+        model: string;
+        api_key_present: boolean;
+        secure_storage_available: boolean;
+      }>;
+    },
+    clearApiKey: async () => {
+      return ipcRenderer.invoke('byok:clearApiKey') as Promise<{
+        enabled: boolean;
+        base_url: string;
+        model: string;
+        api_key_present: boolean;
+        secure_storage_available: boolean;
+      }>;
+    },
+    chatSend: async (text: string) => {
+      return ipcRenderer.invoke('byok:chatSend', { text }) as Promise<{ content: string }>;
+    },
+    chatAbort: async () => {
+      return ipcRenderer.invoke('byok:chatAbort') as Promise<{ ok: boolean }>;
+    }
+  },
   assistant: {
     setEnabled: async (enabled: boolean, saveId: string): Promise<void> => {
       await ipcRenderer.invoke('assistant:setEnabled', { enabled, saveId });
@@ -380,6 +462,22 @@ contextBridge.exposeInMainWorld('desktopApi', {
     },
     writeClipboardText: async (text: string): Promise<void> => {
       await ipcRenderer.invoke('assistant:writeClipboardText', { text });
+    }
+  },
+  userData: {
+    getInfo: async (): Promise<UserDataInfo> => {
+      return ipcRenderer.invoke('userdata:getInfo') as Promise<UserDataInfo>;
+    },
+    pickDir: async (): Promise<UserDataPickDirResult> => {
+      return ipcRenderer.invoke('userdata:pickDir') as Promise<UserDataPickDirResult>;
+    },
+    migrate: async (targetDir: string): Promise<UserDataMigrateResult> => {
+      return ipcRenderer.invoke('userdata:migrate', { targetDir }) as Promise<UserDataMigrateResult>;
+    }
+  },
+  app: {
+    relaunch: async (): Promise<void> => {
+      await ipcRenderer.invoke('app:relaunch');
     }
   }
 });

@@ -229,6 +229,7 @@ test('Task 18: timeline simulate + list (with evidence screenshot)', async () =>
         env: {
           ...process.env,
           NODE_ENV: 'test',
+          PARA_LABS: '1',
           PARA_SERVER_BASE_URL: stub.baseUrl,
           PARA_USER_DATA_DIR: userDataDir
         }

@@ -99,7 +99,8 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "include": "scripts/installer-para-data-dir.nsh"
     }
   }
 }

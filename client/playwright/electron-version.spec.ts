@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
 import { test, expect } from '@playwright/test';
 import { _electron as electron } from 'playwright';
 import type { ElectronApplication, Page } from 'playwright';
@@ -49,38 +50,35 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
-test('Electron smoke: renders debug panel and has stable testids', async () => {
+function readClientPackageVersion(): string {
+  const pkgPath = path.resolve(process.cwd(), 'package.json');
+  const raw = fs.readFileSync(pkgPath, 'utf8');
+  const obj = JSON.parse(raw) as { version?: unknown };
+  if (typeof obj.version !== 'string' || obj.version.trim() === '') {
+    throw new Error('E2E_CLIENT_PKG_VERSION_MISSING');
+  }
+  return obj.version.trim();
+}
+
+test('Electron Task4: About/meta shows app version', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
 
-  const env = { ...process.env, NODE_ENV: 'test' };
-  delete (env as any).PARA_LABS;
+  const expectedVersion = readClientPackageVersion();
 
   const app = await electron.launch({
     executablePath: electronPath as unknown as string,
     args: [mainEntry],
-    env
+    env: {
+      ...process.env,
+      NODE_ENV: 'test'
+    }
   });
 
   const page = await getDebugPanelPage(app);
-
-  await expect(page.getByTestId(TEST_IDS.chatInput)).toBeVisible();
-  await expect(page.getByTestId(TEST_IDS.loginSubmit)).toBeVisible();
-
-  await expect(page.getByTestId(TEST_IDS.galleryGenerate)).toHaveCount(0);
-  await expect(page.getByTestId(TEST_IDS.timelineCard)).toHaveCount(0);
-  await expect(page.getByTestId(TEST_IDS.socialRoomCard)).toHaveCount(0);
-
-  const evidencePath = path.resolve(
-    process.cwd(),
-    '..',
-    '.sisyphus',
-    'evidence',
-    'task-3-electron-smoke.png'
-  );
-  await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
-  await page.screenshot({ path: evidencePath, fullPage: true });
-  expect(fs.existsSync(evidencePath)).toBeTruthy();
+  const meta = page.getByTestId(TEST_IDS.appMetaVersions);
+  await expect(meta).toBeVisible();
+  await expect(meta).toContainText(`App: ${expectedVersion}`);
 
   await app.close();
 });

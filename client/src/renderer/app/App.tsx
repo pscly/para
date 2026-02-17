@@ -105,6 +105,13 @@ type UpdateState = {
   source: 'real' | 'fake' | 'none' | string;
 };
 
+type UserDataInfo = {
+  userDataDir: string;
+  source: string;
+  configPath: string;
+  envOverrideActive: boolean;
+};
+
 type DesktopApiExt = NonNullable<Window['desktopApi']>;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -239,10 +246,34 @@ export function App() {
   const [loggedInEmail, setLoggedInEmail] = React.useState<string | null>(null);
   const [isLoggingIn, setIsLoggingIn] = React.useState(false);
 
+  const [registerEmail, setRegisterEmail] = React.useState('');
+  const [registerPassword, setRegisterPassword] = React.useState('');
+  const [registerInviteCode, setRegisterInviteCode] = React.useState('');
+  const [registerError, setRegisterError] = React.useState('');
+  const [isRegistering, setIsRegistering] = React.useState(false);
+
   const [chatInput, setChatInput] = React.useState('');
   const [lastAiMessage, setLastAiMessage] = React.useState('还没有 AI 回复');
   const [wsStatusLabel, setWsStatusLabel] = React.useState('未连接');
   const [chatMeta, setChatMeta] = React.useState('');
+
+  const [byokEnabled, setByokEnabled] = React.useState(false);
+  const [byokBaseUrl, setByokBaseUrl] = React.useState('');
+  const [byokModel, setByokModel] = React.useState('');
+  const [byokApiKeyPresent, setByokApiKeyPresent] = React.useState(false);
+  const [byokSecureStorageAvailable, setByokSecureStorageAvailable] = React.useState(false);
+  const [byokApiKeyInput, setByokApiKeyInput] = React.useState('');
+  const [byokBusy, setByokBusy] = React.useState(false);
+  const [byokUiError, setByokUiError] = React.useState('');
+  const [byokSending, setByokSending] = React.useState(false);
+
+  const [appEncDesiredEnabled, setAppEncDesiredEnabled] = React.useState(false);
+  const [appEncEffectiveEnabled, setAppEncEffectiveEnabled] = React.useState(false);
+  const [appEncUiError, setAppEncUiError] = React.useState('');
+  const [appEncBusy, setAppEncBusy] = React.useState(false);
+  const [appEncConfigPath, setAppEncConfigPath] = React.useState('');
+
+  const byokSendingRef = React.useRef<boolean>(false);
 
   const [activeSaveId, setActiveSaveId] = React.useState<string>('default');
   const [saveCreateName, setSaveCreateName] = React.useState('');
@@ -304,6 +335,13 @@ export function App() {
   const [updateUiError, setUpdateUiError] = React.useState('');
   const [updateBusy, setUpdateBusy] = React.useState(false);
 
+  const [userDataInfo, setUserDataInfo] = React.useState<UserDataInfo | null>(null);
+  const [userDataTargetDir, setUserDataTargetDir] = React.useState('');
+  const [userDataBusy, setUserDataBusy] = React.useState(false);
+  const [userDataUiError, setUserDataUiError] = React.useState('');
+  const [userDataUiInfo, setUserDataUiInfo] = React.useState('');
+  const [userDataNeedsRestart, setUserDataNeedsRestart] = React.useState(false);
+
   const socialSeenEventIdsRef = React.useRef<Set<string>>(new Set());
 
   const galleryPollTimerRef = React.useRef<ReturnType<typeof setInterval> | null>(null);
@@ -314,6 +352,20 @@ export function App() {
   const activeRequestDoneRef = React.useRef<boolean>(false);
 
   const versions = window.desktopApi?.versions;
+  const labsEnabled = window.desktopApi?.labsEnabled === true;
+  const [appVersion, setAppVersion] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    const api = window.desktopApi;
+    if (!api?.getAppVersion) return;
+
+    void api
+      .getAppVersion()
+      .then((v) => {
+        if (typeof v === 'string' && v.trim() !== '') setAppVersion(v.trim());
+      })
+      .catch(() => {});
+  }, []);
 
   React.useEffect(() => {
     const api = window.desktopApi;
@@ -347,6 +399,50 @@ export function App() {
       } catch {
       }
     };
+  }, []);
+
+  React.useEffect(() => {
+    const userData = window.desktopApi?.userData;
+    if (!userData?.getInfo) return;
+
+    void userData
+      .getInfo()
+      .then((info) => {
+        if (info && typeof info.userDataDir === 'string') setUserDataInfo(info as any);
+      })
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    const byok = window.desktopApi?.byok;
+    if (!byok?.getConfig) return;
+
+    void byok
+      .getConfig()
+      .then((cfg) => {
+        if (!cfg) return;
+        setByokEnabled(Boolean((cfg as any).enabled));
+        setByokBaseUrl(typeof (cfg as any).base_url === 'string' ? (cfg as any).base_url : '');
+        setByokModel(typeof (cfg as any).model === 'string' ? (cfg as any).model : '');
+        setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+        setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+      })
+      .catch(() => {});
+  }, []);
+
+  React.useEffect(() => {
+    const security = (window.desktopApi as any)?.security;
+    if (!security?.getAppEncStatus) return;
+
+    void security
+      .getAppEncStatus()
+      .then((s: any) => {
+        setAppEncDesiredEnabled(Boolean(s?.desiredEnabled));
+        setAppEncEffectiveEnabled(Boolean(s?.effectiveEnabled));
+        setAppEncConfigPath(typeof s?.configPath === 'string' ? s.configPath : '');
+        setAppEncUiError(typeof s?.error === 'string' && s.error ? s.error : '');
+      })
+      .catch(() => {});
   }, []);
 
   React.useEffect(() => {
@@ -572,6 +668,95 @@ export function App() {
     return '登录失败';
   }
 
+  function toReadableRegisterError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('invite_code_required')) return '需要邀请码';
+    if (code.includes('invite_code_invalid')) return '邀请码无效';
+    if (code.includes('invite_code_revoked')) return '邀请码已撤销';
+    if (code.includes('invite_code_expired')) return '邀请码已过期';
+    if (code.includes('invite_code_exhausted')) return '邀请码已用尽';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('SAFE_STORAGE_UNAVAILABLE')) {
+      return '本机安全存储不可用，无法安全保存登录态（已禁止明文保存 token）。请先修复系统密钥环/凭据服务或更换到受支持的桌面环境后重试。';
+    }
+    return '注册失败';
+  }
+
+  function toReadableByokError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('BYOK_BASE_URL_INVALID')) return 'base_url 不合法（需要 http/https 绝对 URL）';
+    if (code.includes('BYOK_CONFIG_INCOMPLETE')) return 'BYOK 配置不完整（需要 base_url / model / api_key）';
+    if (code.includes('BYOK_DISABLED')) return 'BYOK 未启用';
+    if (code.includes('BYOK_BUSY')) return 'BYOK 正在生成中…';
+    if (code.includes('SAFE_STORAGE_UNAVAILABLE')) {
+      return '本机安全存储不可用，无法安全保存/使用 BYOK Key。请先修复系统密钥环/凭据服务后重试。';
+    }
+    if (code.includes('BYOK_KEY_DECRYPT_FAILED')) return 'BYOK Key 解密失败（可能系统密钥环变更），请重新更新 Key。';
+    if (code.includes('ABORTED')) return '已停止';
+    if (code.includes('NETWORK_ERROR')) return '网络错误';
+    if (code.includes('API_FAILED')) return '请求失败';
+    return 'BYOK 失败';
+  }
+
+  function toReadableAppEncErrorFromStatus(codeRaw: unknown): string {
+    const code = typeof codeRaw === 'string' ? codeRaw : '';
+    if (!code) return '';
+    if (code.includes('APPENC_STATUS_UNAVAILABLE')) return '应用层加密状态接口不可用';
+    if (code.includes('APPENC_TOGGLE_PERSIST_FAILED')) return '保存开关失败：无法写入配置文件（开关未持久化）。';
+    if (code.includes('APPENC_KEYS_MISSING')) return '已开启应用层加密，但未检测到 PARA_APPENC_KEYS（需要部署/运维注入）。已回退明文（TLS）。';
+    if (code.includes('APPENC_PRIMARY_KID_MISSING')) {
+      return '已开启应用层加密，但未检测到 PARA_APPENC_PRIMARY_KID（需要部署/运维注入）。已回退明文（TLS）。';
+    }
+    if (code.includes('APPENC_KEYS_INVALID')) return 'PARA_APPENC_KEYS 格式非法（应为 kid:base64url_32bytes[,kid2:...]）。已回退明文（TLS）。';
+    if (code.includes('APPENC_PRIMARY_KID_UNKNOWN')) return 'PARA_APPENC_PRIMARY_KID 不在 PARA_APPENC_KEYS 列表中。已回退明文（TLS）。';
+    if (code.includes('APPENC_DISABLED')) return '应用层加密未启用，无法解密服务端加密响应。';
+    return '应用层加密配置错误（已回退明文/TLS）。';
+  }
+
+  async function refreshAppEncStatus(opts?: { silent?: boolean }) {
+    const security = (window.desktopApi as any)?.security;
+    if (!security?.getAppEncStatus) {
+      if (!opts?.silent) setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
+      return;
+    }
+
+    try {
+      const s = await security.getAppEncStatus();
+      setAppEncDesiredEnabled(Boolean(s?.desiredEnabled));
+      setAppEncEffectiveEnabled(Boolean(s?.effectiveEnabled));
+      setAppEncConfigPath(typeof s?.configPath === 'string' ? s.configPath : '');
+      setAppEncUiError(typeof s?.error === 'string' && s.error ? s.error : '');
+    } catch {
+      if (!opts?.silent) setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
+    }
+  }
+
+  async function onAppEncToggle() {
+    if (appEncBusy) return;
+    setAppEncUiError('');
+
+    const security = (window.desktopApi as any)?.security;
+    if (!security?.setAppEncEnabled) {
+      setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
+      return;
+    }
+
+    const nextEnabled = !appEncDesiredEnabled;
+    setAppEncBusy(true);
+    try {
+      const s = await security.setAppEncEnabled(nextEnabled);
+      setAppEncDesiredEnabled(Boolean(s?.desiredEnabled));
+      setAppEncEffectiveEnabled(Boolean(s?.effectiveEnabled));
+      setAppEncConfigPath(typeof s?.configPath === 'string' ? s.configPath : '');
+      setAppEncUiError(typeof s?.error === 'string' && s.error ? s.error : '');
+    } catch {
+      setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
+      await refreshAppEncStatus({ silent: true });
+    } finally {
+      setAppEncBusy(false);
+    }
+  }
+
   function toReadableSaveUiError(err: unknown): string {
     const code = getErrorCode(err);
     if (code.includes('NOT_LOGGED_IN')) return '请先登录';
@@ -659,6 +844,20 @@ export function App() {
     if (code.includes('API_FAILED')) return '请求失败';
     if (code.includes('INVALID_PAYLOAD')) return '参数不正确';
     return '插件操作失败';
+  }
+
+  function toReadableUserDataError(err: unknown): string {
+    const code = getErrorCode(err);
+    if (code.includes('USERDATA_TARGET_EMPTY')) return '请输入新目录';
+    if (code.includes('USERDATA_TARGET_NOT_ABSOLUTE')) return '请输入绝对路径';
+    if (code.includes('USERDATA_TARGET_SAME_AS_CURRENT')) return '目标目录与当前目录相同';
+    if (code.includes('USERDATA_TARGET_INSIDE_CURRENT')) return '目标目录在当前目录内部，已禁止（避免递归复制）';
+    if (code.includes('USERDATA_TARGET_NOT_DIR')) return '目标路径存在但不是目录';
+    if (code.includes('USERDATA_TARGET_NOT_EMPTY')) return '目标目录非空，请选择一个空目录';
+    if (code.includes('USERDATA_TARGET_NOT_WRITABLE')) return '目标目录不可写';
+    if (code.includes('USERDATA_CONFIG_WRITE_FAILED')) return '迁移已完成，但写入配置失败（未切换）。请检查权限后重试。';
+    if (code.includes('USERDATA_MIGRATE_FAILED')) return '迁移失败';
+    return '迁移失败';
   }
 
   function toGalleryStatusLabel(status: unknown): string {
@@ -1424,6 +1623,160 @@ export function App() {
     }
   }
 
+  async function onRegisterSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (isRegistering) return;
+
+    const emailIn = registerEmail.trim();
+    const passwordIn = registerPassword;
+    const inviteIn = registerInviteCode.trim();
+
+    if (!emailIn || !passwordIn) {
+      setRegisterError('请输入邮箱与密码');
+      return;
+    }
+
+    const auth = window.desktopApi?.auth;
+    if (!auth?.register) {
+      setRegisterError('注册失败');
+      return;
+    }
+
+    setIsRegistering(true);
+    setRegisterError('');
+    try {
+      const me = await auth.register(emailIn, passwordIn, inviteIn ? inviteIn : undefined);
+      setLoggedInEmail(me.email);
+      setRegisterPassword('');
+      setRegisterInviteCode('');
+      setRegisterError('');
+    } catch (err: unknown) {
+      setRegisterError(toReadableRegisterError(err));
+    } finally {
+      setIsRegistering(false);
+    }
+  }
+
+  async function refreshByokConfig(opts?: { silent?: boolean }) {
+    const byok = window.desktopApi?.byok;
+    if (!byok?.getConfig) {
+      if (!opts?.silent) setByokUiError('BYOK 接口不可用');
+      return;
+    }
+
+    try {
+      const cfg = await byok.getConfig();
+      setByokEnabled(Boolean((cfg as any).enabled));
+      setByokBaseUrl(typeof (cfg as any).base_url === 'string' ? (cfg as any).base_url : '');
+      setByokModel(typeof (cfg as any).model === 'string' ? (cfg as any).model : '');
+      setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+      setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+      if (!opts?.silent) setByokUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setByokUiError(toReadableByokError(err));
+    }
+  }
+
+  async function onByokSaveConfig() {
+    if (byokBusy) return;
+    setByokUiError('');
+    const byok = window.desktopApi?.byok;
+    if (!byok?.setConfig) {
+      setByokUiError('BYOK 保存接口不可用');
+      return;
+    }
+
+    setByokBusy(true);
+    try {
+      const cfg = await byok.setConfig({ enabled: byokEnabled, base_url: byokBaseUrl, model: byokModel } as any);
+      setByokEnabled(Boolean((cfg as any).enabled));
+      setByokBaseUrl(typeof (cfg as any).base_url === 'string' ? (cfg as any).base_url : '');
+      setByokModel(typeof (cfg as any).model === 'string' ? (cfg as any).model : '');
+      setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+      setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+    } catch (err: unknown) {
+      setByokUiError(toReadableByokError(err));
+    } finally {
+      setByokBusy(false);
+    }
+  }
+
+  async function onByokToggle() {
+    if (byokBusy) return;
+    setByokUiError('');
+    const byok = window.desktopApi?.byok;
+    if (!byok?.setConfig) {
+      setByokUiError('BYOK 开关接口不可用');
+      return;
+    }
+
+    const nextEnabled = !byokEnabled;
+    setByokBusy(true);
+    try {
+      const cfg = await byok.setConfig({ enabled: nextEnabled, base_url: byokBaseUrl, model: byokModel } as any);
+      setByokEnabled(Boolean((cfg as any).enabled));
+      setByokBaseUrl(typeof (cfg as any).base_url === 'string' ? (cfg as any).base_url : '');
+      setByokModel(typeof (cfg as any).model === 'string' ? (cfg as any).model : '');
+      setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+      setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+    } catch (err: unknown) {
+      setByokUiError(toReadableByokError(err));
+      await refreshByokConfig({ silent: true });
+    } finally {
+      setByokBusy(false);
+    }
+  }
+
+  async function onByokUpdateApiKey() {
+    if (byokBusy) return;
+    setByokUiError('');
+
+    const apiKey = byokApiKeyInput.trim();
+    if (!apiKey) {
+      setByokUiError('请输入 API Key');
+      return;
+    }
+
+    const byok = window.desktopApi?.byok;
+    if (!byok?.updateApiKey) {
+      setByokUiError('BYOK 更新 Key 接口不可用');
+      return;
+    }
+
+    setByokBusy(true);
+    try {
+      const cfg = await byok.updateApiKey(apiKey);
+      setByokApiKeyInput('');
+      setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+      setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+    } catch (err: unknown) {
+      setByokUiError(toReadableByokError(err));
+    } finally {
+      setByokBusy(false);
+    }
+  }
+
+  async function onByokClearApiKey() {
+    if (byokBusy) return;
+    setByokUiError('');
+    const byok = window.desktopApi?.byok;
+    if (!byok?.clearApiKey) {
+      setByokUiError('BYOK 清除 Key 接口不可用');
+      return;
+    }
+
+    setByokBusy(true);
+    try {
+      const cfg = await byok.clearApiKey();
+      setByokApiKeyPresent(Boolean((cfg as any).api_key_present));
+      setByokSecureStorageAvailable(Boolean((cfg as any).secure_storage_available));
+    } catch (err: unknown) {
+      setByokUiError(toReadableByokError(err));
+    } finally {
+      setByokBusy(false);
+    }
+  }
+
   async function onConnect() {
     const ws = window.desktopApi?.ws;
     if (!ws) {
@@ -1542,11 +1895,15 @@ export function App() {
     const text = chatInput.trim();
     if (!text) return;
 
-    const ws = window.desktopApi?.ws;
-    if (!ws) {
-      setLastAiMessage('聊天不可用');
-      return;
-    }
+    const api = getDesktopApiExt();
+    const ws = api?.ws;
+    const byok = api?.byok;
+    const byokConfigured =
+      byokEnabled &&
+      byokApiKeyPresent &&
+      byokBaseUrl.trim() !== '' &&
+      byokModel.trim() !== '' &&
+      typeof byok?.chatSend === 'function';
 
     const clientRequestId = newClientRequestId();
     activeClientRequestIdRef.current = clientRequestId;
@@ -1557,15 +1914,53 @@ export function App() {
     setChatInput('');
 
     try {
+      if (byokConfigured) {
+        byokSendingRef.current = true;
+        setByokSending(true);
+        const res = await byok.chatSend(text);
+        activeRequestDoneRef.current = true;
+        const content = (res as any)?.content;
+        setLastAiMessage(typeof content === 'string' ? content : '');
+        setChatMeta('完成');
+        return;
+      }
+
+      if (!ws) {
+        setLastAiMessage('聊天不可用');
+        activeRequestDoneRef.current = true;
+        return;
+      }
+
       await ws.chatSend(text, clientRequestId);
-    } catch {
+    } catch (err: unknown) {
       activeRequestDoneRef.current = true;
-      setChatMeta('发送失败');
+      if (byokConfigured) {
+        setChatMeta(toReadableByokError(err));
+      } else {
+        setChatMeta('发送失败');
+      }
+    } finally {
+      byokSendingRef.current = false;
+      setByokSending(false);
     }
   }
 
   async function onChatStop() {
-    const ws = window.desktopApi?.ws;
+    const api = getDesktopApiExt();
+    const byok = api?.byok;
+    const ws = api?.ws;
+
+    if (byokSendingRef.current && typeof byok?.chatAbort === 'function') {
+      try {
+        await byok.chatAbort();
+        activeRequestDoneRef.current = true;
+        setChatMeta('已停止');
+      } catch (err: unknown) {
+        setChatMeta(toReadableByokError(err));
+      }
+      return;
+    }
+
     if (!ws) return;
     try {
       await ws.interrupt();
@@ -1632,12 +2027,96 @@ export function App() {
     }
   }
 
+  async function refreshUserDataInfo(opts?: { silent?: boolean }) {
+    const userData = window.desktopApi?.userData;
+    if (!userData?.getInfo) {
+      if (!opts?.silent) setUserDataUiError('数据目录接口不可用');
+      return;
+    }
+
+    try {
+      const info = await userData.getInfo();
+      setUserDataInfo(info as any);
+      if (!opts?.silent) setUserDataUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setUserDataUiError(toReadableUserDataError(err));
+    }
+  }
+
+  async function onUserDataPickDir() {
+    if (userDataBusy) return;
+    setUserDataUiError('');
+    setUserDataUiInfo('');
+
+    const userData = window.desktopApi?.userData;
+    if (!userData?.pickDir) {
+      setUserDataUiError('选择目录不可用');
+      return;
+    }
+
+    try {
+      const res = await userData.pickDir();
+      if (res?.canceled) return;
+      if (typeof res?.path === 'string' && res.path.trim() !== '') {
+        setUserDataTargetDir(res.path);
+      }
+    } catch (err: unknown) {
+      setUserDataUiError(toReadableUserDataError(err));
+    }
+  }
+
+  async function onUserDataMigrate() {
+    if (userDataBusy) return;
+    setUserDataUiError('');
+    setUserDataUiInfo('');
+    setUserDataNeedsRestart(false);
+
+    const targetDir = userDataTargetDir.trim();
+    if (!targetDir) {
+      setUserDataUiError('请输入新目录');
+      return;
+    }
+
+    const userData = window.desktopApi?.userData;
+    if (!userData?.migrate) {
+      setUserDataUiError('迁移接口不可用');
+      return;
+    }
+
+    setUserDataBusy(true);
+    try {
+      const res = await userData.migrate(targetDir);
+      const finalTarget = typeof res?.targetDir === 'string' && res.targetDir.trim() !== '' ? res.targetDir.trim() : targetDir;
+      setUserDataUiInfo(`迁移完成：${finalTarget}`);
+      setUserDataNeedsRestart(true);
+      await refreshUserDataInfo({ silent: true });
+    } catch (err: unknown) {
+      setUserDataUiError(toReadableUserDataError(err));
+    } finally {
+      setUserDataBusy(false);
+    }
+  }
+
+  async function onUserDataRelaunch() {
+    const appApi = window.desktopApi?.app;
+    if (!appApi?.relaunch) {
+      setUserDataUiError('重启接口不可用');
+      return;
+    }
+
+    try {
+      await appApi.relaunch();
+    } catch (err: unknown) {
+      setUserDataUiError(toReadableUserDataError(err));
+    }
+  }
+
   return (
     <div className="app">
       <header className="topbar">
         <h1 className="title">桌宠调试面板</h1>
-        <div className="meta">
-          Electron: {versions?.electron ?? 'unknown'} | Node: {versions?.node ?? 'unknown'}
+        <div className="meta" data-testid={TEST_IDS.appMetaVersions}>
+          App: {appVersion ?? 'unknown'} | Electron: {versions?.electron ?? 'unknown'} | Node: {versions?.node ?? 'unknown'}
         </div>
       </header>
 
@@ -1774,6 +2253,206 @@ export function App() {
         </section>
 
         <section className="card">
+          <h2>高级/安全</h2>
+          <div className="meta">
+            应用层加密（para_appenc）：仅对与服务端的 JSON API 通信生效（`Content-Type: application/json` 且 body 非空）。
+            GET/上传等保持明文（TLS）。默认关闭。
+            开启需要部署/运维通过环境变量注入 keys：`PARA_APPENC_KEYS` + `PARA_APPENC_PRIMARY_KID`。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.securityAppEncToggle}
+              aria-pressed={appEncDesiredEnabled}
+              onClick={onAppEncToggle}
+              className={appEncDesiredEnabled ? 'btn-ok' : ''}
+              disabled={appEncBusy}
+            >
+              {appEncDesiredEnabled ? '已启用（点击关闭）' : '默认关闭（点击启用）'}
+            </button>
+            <span className="pill">生效：{appEncEffectiveEnabled ? '加密（req/resp）' : '明文（TLS）'}</span>
+          </div>
+
+          {appEncConfigPath ? <div className="meta">配置文件：{appEncConfigPath}</div> : null}
+
+          {appEncUiError ? (
+            <div className="danger" data-testid={TEST_IDS.securityAppEncError}>
+              {toReadableAppEncErrorFromStatus(appEncUiError)}
+            </div>
+          ) : null}
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.userDataCard}>
+          <h2>数据目录（userData）</h2>
+          <div className="meta">
+            当前生效的数据目录为 Electron 的 userData 根路径。迁移会把旧目录内容复制到新目录，并写入稳定配置（appData/Para Desktop/para.config.json）。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row" data-testid={TEST_IDS.userDataCurrentDir}>
+            <span className="pill">当前：{userDataInfo?.userDataDir ?? 'unknown'}</span>
+            <span className="pill">来源：{userDataInfo?.source ?? 'unknown'}</span>
+          </div>
+          <div className="meta" data-testid={TEST_IDS.userDataConfigPath}>
+            配置文件：{userDataInfo?.configPath ?? '-'}
+          </div>
+
+          {userDataInfo?.envOverrideActive ? (
+            <div className="meta">
+              提示：检测到环境变量 PARA_USER_DATA_DIR（优先级最高）。迁移写入的配置需要在移除该变量后才会生效。
+            </div>
+          ) : null}
+
+          <div style={{ height: 10 }} />
+          <div className="row">
+            <input
+              data-testid={TEST_IDS.userDataTargetInput}
+              value={userDataTargetDir}
+              onChange={(e) => setUserDataTargetDir(e.target.value)}
+              placeholder="新数据目录（绝对路径）"
+            />
+            <button type="button" data-testid={TEST_IDS.userDataPickDir} onClick={onUserDataPickDir} disabled={userDataBusy}>
+              选择…
+            </button>
+          </div>
+
+          <div className="row">
+            <button
+              type="button"
+              className="btn-warn"
+              data-testid={TEST_IDS.userDataMigrate}
+              onClick={onUserDataMigrate}
+              disabled={userDataBusy}
+            >
+              {userDataBusy ? '迁移中…' : '迁移并写入配置'}
+            </button>
+            <button type="button" onClick={() => void refreshUserDataInfo()} disabled={userDataBusy}>
+              刷新
+            </button>
+          </div>
+
+          <div className="meta" data-testid={TEST_IDS.userDataStatus}>
+            {userDataNeedsRestart
+              ? '迁移完成：需要重启才能完全切换到新目录。'
+              : userDataUiInfo
+                ? userDataUiInfo
+                : '未执行迁移'}
+          </div>
+
+          {userDataNeedsRestart ? (
+            <div className="row">
+              <button
+                type="button"
+                className="btn-ok"
+                data-testid={TEST_IDS.userDataRestart}
+                onClick={onUserDataRelaunch}
+              >
+                一键重启
+              </button>
+            </div>
+          ) : null}
+
+          {userDataUiError ? <div className="danger">{userDataUiError}</div> : null}
+        </section>
+
+        <section className="card" data-testid={TEST_IDS.byokCard}>
+          <h2>BYOK（本机直连 Chat-only）</h2>
+          <div className="meta">
+            启用且配置完整时，“发送/停止”将直连 OpenAI 兼容接口（`/v1/chat/completions`），不走 `/ws/v1`，不会写入服务端。
+            API Key 仅本机保存，UI 不回显旧值。
+          </div>
+          <div style={{ height: 10 }} />
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.byokToggle}
+              aria-pressed={byokEnabled}
+              onClick={onByokToggle}
+              className={byokEnabled ? 'btn-ok' : ''}
+              disabled={byokBusy || byokSending}
+            >
+              {byokEnabled ? '已启用（点击关闭）' : '默认关闭（点击启用）'}
+            </button>
+            <span className="pill">Key：{byokApiKeyPresent ? '已设置' : '未设置'}</span>
+            <span className="pill">安全存储：{byokSecureStorageAvailable ? '可用' : '不可用'}</span>
+          </div>
+
+          <div style={{ height: 10 }} />
+          <div className="split">
+            <input
+              data-testid={TEST_IDS.byokBaseUrl}
+              value={byokBaseUrl}
+              onChange={(e) => setByokBaseUrl(e.target.value)}
+              placeholder="base_url（OpenAI 兼容，例如 https://api.openai.com）"
+              disabled={byokBusy || byokSending}
+            />
+            <input
+              data-testid={TEST_IDS.byokModel}
+              value={byokModel}
+              onChange={(e) => setByokModel(e.target.value)}
+              placeholder="model（例如 gpt-4o-mini）"
+              disabled={byokBusy || byokSending}
+            />
+          </div>
+
+          <div className="row">
+            <button
+              type="button"
+              data-testid={TEST_IDS.byokSave}
+              onClick={onByokSaveConfig}
+              disabled={byokBusy || byokSending}
+            >
+              保存配置
+            </button>
+            <button type="button" onClick={() => void refreshByokConfig()} disabled={byokBusy || byokSending}>
+              刷新
+            </button>
+          </div>
+
+          <div style={{ height: 10 }} />
+          <div className="split">
+            <input
+              data-testid={TEST_IDS.byokApiKeyInput}
+              value={byokApiKeyInput}
+              onChange={(e) => setByokApiKeyInput(e.target.value)}
+              placeholder="API Key（不会回显旧值；输入新 key 后点击更新）"
+              type="password"
+              autoComplete="off"
+              disabled={byokBusy || byokSending}
+            />
+            <button
+              type="button"
+              data-testid={TEST_IDS.byokApiKeyUpdate}
+              className="btn-warn"
+              onClick={onByokUpdateApiKey}
+              disabled={byokBusy || byokSending}
+            >
+              更新 Key
+            </button>
+            <button
+              type="button"
+              data-testid={TEST_IDS.byokApiKeyClear}
+              onClick={onByokClearApiKey}
+              disabled={byokBusy || byokSending}
+            >
+              清除 Key
+            </button>
+          </div>
+
+          <div className="meta" data-testid={TEST_IDS.byokStatus}>
+            {byokEnabled && byokBaseUrl.trim() && byokModel.trim() && byokApiKeyPresent
+              ? '状态：已启用（Chat 将走 BYOK 直连）'
+              : byokEnabled
+                ? '状态：已启用（配置未完整时 Chat 仍走 WS）'
+                : '状态：未启用'}
+          </div>
+          {byokUiError ? <div className="danger">{byokUiError}</div> : null}
+        </section>
+
+        <section className="card">
           <h2>知识投喂</h2>
           <button
             type="button"
@@ -1901,118 +2580,219 @@ export function App() {
           </div>
         </section>
 
-        <section className="card">
-          <h2>生成式相册</h2>
-          <div className="meta">输入 prompt 点击生成；存在 pending 条目时会自动刷新列表。</div>
-          <div style={{ height: 10 }} />
-          <div className="row" data-testid={TEST_IDS.galleryGenerate}>
-            <input
-              value={galleryPrompt}
-              onChange={(e) => setGalleryPrompt(e.target.value)}
-              placeholder="生成提示词（prompt）"
-            />
-            <button type="button" onClick={onGalleryGenerate} disabled={galleryBusy}>
-              {galleryBusy ? '生成中…' : '生成'}
-            </button>
-            <button
-              type="button"
-              data-testid={TEST_IDS.galleryRefresh}
-              onClick={onGalleryRefresh}
-              className="btn-warn"
-              disabled={galleryBusy}
-            >
-              刷新
-            </button>
-          </div>
+        {labsEnabled ? (
+          <section className="card">
+            <h2>生成式相册</h2>
+            <div className="meta">输入 prompt 点击生成；存在 pending 条目时会自动刷新列表。</div>
+            <div style={{ height: 10 }} />
+            <div className="row" data-testid={TEST_IDS.galleryGenerate}>
+              <input
+                value={galleryPrompt}
+                onChange={(e) => setGalleryPrompt(e.target.value)}
+                placeholder="生成提示词（prompt）"
+              />
+              <button type="button" onClick={onGalleryGenerate} disabled={galleryBusy}>
+                {galleryBusy ? '生成中…' : '生成'}
+              </button>
+              <button
+                type="button"
+                data-testid={TEST_IDS.galleryRefresh}
+                onClick={onGalleryRefresh}
+                className="btn-warn"
+                disabled={galleryBusy}
+              >
+                刷新
+              </button>
+            </div>
 
-          {galleryUiError ? <div className="danger">{galleryUiError}</div> : null}
+            {galleryUiError ? <div className="danger">{galleryUiError}</div> : null}
 
-          <div style={{ height: 10 }} />
-          <div className="gallery-masonry" data-testid={TEST_IDS.galleryMasonry}>
-            {galleryItems.length === 0 ? (
-              <div className="meta">暂无图片（先生成或点击刷新）</div>
-            ) : (
-              galleryItems.map((it) => {
-                const statusLabel = toGalleryStatusLabel(it.status);
-                const timeLabel = formatGalleryTime(it.created_at);
-                const imgSrc = galleryImageUrls[it.id] ?? '';
+            <div style={{ height: 10 }} />
+            <div className="gallery-masonry" data-testid={TEST_IDS.galleryMasonry}>
+              {galleryItems.length === 0 ? (
+                <div className="meta">暂无图片（先生成或点击刷新）</div>
+              ) : (
+                galleryItems.map((it) => {
+                  const statusLabel = toGalleryStatusLabel(it.status);
+                  const timeLabel = formatGalleryTime(it.created_at);
+                  const imgSrc = galleryImageUrls[it.id] ?? '';
 
-                return (
-                  <div key={it.id} className="gallery-item" data-testid={TEST_IDS.galleryItem}>
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span className="pill">{statusLabel}</span>
-                      {timeLabel ? <span className="meta">{timeLabel}</span> : null}
-                    </div>
-                    <div className="meta" style={{ marginTop: 6 }}>
-                      {it.prompt}
-                    </div>
-
-                    <div style={{ height: 8 }} />
-                    {String(it.status) === 'completed' && imgSrc ? (
-                      <img className="gallery-img" src={imgSrc} alt={it.prompt || it.id} loading="lazy" />
-                    ) : (
-                      <div className="gallery-placeholder">
-                        {String(it.status) === 'failed'
-                          ? '生成失败'
-                          : String(it.status) === 'canceled'
-                            ? '已取消'
-                            : '等待生成…'}
+                  return (
+                    <div key={it.id} className="gallery-item" data-testid={TEST_IDS.galleryItem}>
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span className="pill">{statusLabel}</span>
+                        {timeLabel ? <span className="meta">{timeLabel}</span> : null}
                       </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </section>
+                      <div className="meta" style={{ marginTop: 6 }}>
+                        {it.prompt}
+                      </div>
 
-        <section className="card" data-testid={TEST_IDS.timelineCard}>
-          <h2>时间轴（离线模拟）</h2>
-          <div className="meta">手动触发服务端生成离线事件；刷新可拉取时间轴列表。</div>
-          <div style={{ height: 10 }} />
+                      <div style={{ height: 8 }} />
+                      {String(it.status) === 'completed' && imgSrc ? (
+                        <img className="gallery-img" src={imgSrc} alt={it.prompt || it.id} loading="lazy" />
+                      ) : (
+                        <div className="gallery-placeholder">
+                          {String(it.status) === 'failed'
+                            ? '生成失败'
+                            : String(it.status) === 'canceled'
+                              ? '已取消'
+                              : '等待生成…'}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ) : null}
 
-          <div className="row">
-            <button
-              type="button"
-              data-testid={TEST_IDS.timelineSimulate}
-              onClick={onTimelineSimulate}
-              disabled={timelineBusy}
-              className={timelineBusy ? '' : 'btn-ok'}
+        {labsEnabled ? (
+          <section className="card" data-testid={TEST_IDS.timelineCard}>
+            <h2>时间轴（离线模拟）</h2>
+            <div className="meta">手动触发服务端生成离线事件；刷新可拉取时间轴列表。</div>
+            <div style={{ height: 10 }} />
+
+            <div className="row">
+              <button
+                type="button"
+                data-testid={TEST_IDS.timelineSimulate}
+                onClick={onTimelineSimulate}
+                disabled={timelineBusy}
+                className={timelineBusy ? '' : 'btn-ok'}
+              >
+                {timelineBusy ? '处理中…' : '模拟一次'}
+              </button>
+              <button
+                type="button"
+                data-testid={TEST_IDS.timelineRefresh}
+                onClick={onTimelineRefresh}
+                disabled={timelineBusy}
+                className="btn-warn"
+              >
+                刷新
+              </button>
+              <span className="pill">当前：{activeSaveId}</span>
+            </div>
+
+            {timelineUiError ? <div className="danger">{timelineUiError}</div> : null}
+
+            <div style={{ height: 10 }} />
+            <div
+              data-testid={TEST_IDS.timelineList}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10
+              }}
             >
-              {timelineBusy ? '处理中…' : '模拟一次'}
-            </button>
-            <button
-              type="button"
-              data-testid={TEST_IDS.timelineRefresh}
-              onClick={onTimelineRefresh}
-              disabled={timelineBusy}
-              className="btn-warn"
+              {timelineItems.length === 0 ? (
+                <div className="meta">暂无事件（点击“模拟一次”或“刷新”）</div>
+              ) : (
+                timelineItems.map((it) => {
+                  const timeLabel = formatGalleryTime(it.createdAt);
+                  return (
+                    <div
+                      key={it.id}
+                      data-testid={TEST_IDS.timelineItem}
+                      style={{
+                        border: '1px solid rgba(255,255,255,0.14)',
+                        borderRadius: 12,
+                        padding: 10,
+                        background: 'rgba(0,0,0,0.12)'
+                      }}
+                    >
+                      <div className="row" style={{ justifyContent: 'space-between' }}>
+                        <span className="pill">{it.eventType}</span>
+                        {timeLabel ? <span className="meta">{timeLabel}</span> : null}
+                      </div>
+                      <div style={{ height: 6 }} />
+                      <div>{it.content}</div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {labsEnabled ? (
+          <section className="card" data-testid={TEST_IDS.socialRoomCard}>
+            <h2>社交房间（最小 UI）</h2>
+            <div className="meta">
+              renderer 仅发起 IPC；主进程携带 token 调用 `/api/v1/social/*`；WS 收到 `ROOM_EVENT` 会追加到列表。
+            </div>
+            <div style={{ height: 10 }} />
+
+            <div className="row">
+              <button
+                type="button"
+                data-testid={TEST_IDS.socialCreateRoom}
+                onClick={onSocialCreateRoom}
+                disabled={socialBusy}
+                className={socialBusy ? '' : 'btn-ok'}
+              >
+                {socialBusy ? '处理中…' : '创建房间'}
+              </button>
+              <span className="pill" data-testid={TEST_IDS.socialRoomId}>
+                room_id：{socialRoomId || '（未创建）'}
+              </span>
+            </div>
+
+            <div style={{ height: 10 }} />
+            <div className="split">
+              <input
+                data-testid={TEST_IDS.socialTargetUserId}
+                value={socialTargetUserId}
+                onChange={(e) => setSocialTargetUserId(e.target.value)}
+                placeholder="好友 user_id（target_user_id）"
+                inputMode="text"
+              />
+              <button
+                type="button"
+                data-testid={TEST_IDS.socialInvite}
+                onClick={onSocialInvite}
+                disabled={socialBusy}
+              >
+                邀请
+              </button>
+            </div>
+
+            <div className="row">
+              <button
+                type="button"
+                data-testid={TEST_IDS.socialJoin}
+                onClick={onSocialJoin}
+                disabled={socialBusy}
+                className="btn-warn"
+              >
+                加入
+              </button>
+              <span className="pill">当前：{activeSaveId}</span>
+            </div>
+
+            {socialUiError ? <div className="danger">{socialUiError}</div> : null}
+            {socialUiInfo ? <div className="meta">{socialUiInfo}</div> : null}
+
+            <div style={{ height: 10 }} />
+            <div className="meta">房间事件（ROOM_EVENT）：</div>
+            <div
+              data-testid={TEST_IDS.socialEventList}
+              style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 10,
+                maxHeight: 200,
+                overflow: 'auto'
+              }}
             >
-              刷新
-            </button>
-            <span className="pill">当前：{activeSaveId}</span>
-          </div>
-
-          {timelineUiError ? <div className="danger">{timelineUiError}</div> : null}
-
-          <div style={{ height: 10 }} />
-          <div
-            data-testid={TEST_IDS.timelineList}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10
-            }}
-          >
-            {timelineItems.length === 0 ? (
-              <div className="meta">暂无事件（点击“模拟一次”或“刷新”）</div>
-            ) : (
-              timelineItems.map((it) => {
-                const timeLabel = formatGalleryTime(it.createdAt);
-                return (
+              {socialRoomEvents.length === 0 ? (
+                <div className="meta">暂无事件（提示：先点击“连接”，再触发创建/邀请/加入）</div>
+              ) : (
+                socialRoomEvents.map((it) => (
                   <div
-                    key={it.id}
-                    data-testid={TEST_IDS.timelineItem}
+                    key={it.key}
+                    data-testid={TEST_IDS.socialEventItem}
                     style={{
                       border: '1px solid rgba(255,255,255,0.14)',
                       borderRadius: 12,
@@ -2020,108 +2800,13 @@ export function App() {
                       background: 'rgba(0,0,0,0.12)'
                     }}
                   >
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span className="pill">{it.eventType}</span>
-                      {timeLabel ? <span className="meta">{timeLabel}</span> : null}
-                    </div>
-                    <div style={{ height: 6 }} />
-                    <div>{it.content}</div>
+                    {it.text}
                   </div>
-                );
-              })
-            )}
-          </div>
-        </section>
-
-        <section className="card" data-testid={TEST_IDS.socialRoomCard}>
-          <h2>社交房间（最小 UI）</h2>
-          <div className="meta">
-            renderer 仅发起 IPC；主进程携带 token 调用 `/api/v1/social/*`；WS 收到 `ROOM_EVENT` 会追加到列表。
-          </div>
-          <div style={{ height: 10 }} />
-
-          <div className="row">
-            <button
-              type="button"
-              data-testid={TEST_IDS.socialCreateRoom}
-              onClick={onSocialCreateRoom}
-              disabled={socialBusy}
-              className={socialBusy ? '' : 'btn-ok'}
-            >
-              {socialBusy ? '处理中…' : '创建房间'}
-            </button>
-            <span className="pill" data-testid={TEST_IDS.socialRoomId}>
-              room_id：{socialRoomId || '（未创建）'}
-            </span>
-          </div>
-
-          <div style={{ height: 10 }} />
-          <div className="split">
-            <input
-              data-testid={TEST_IDS.socialTargetUserId}
-              value={socialTargetUserId}
-              onChange={(e) => setSocialTargetUserId(e.target.value)}
-              placeholder="好友 user_id（target_user_id）"
-              inputMode="text"
-            />
-            <button
-              type="button"
-              data-testid={TEST_IDS.socialInvite}
-              onClick={onSocialInvite}
-              disabled={socialBusy}
-            >
-              邀请
-            </button>
-          </div>
-
-          <div className="row">
-            <button
-              type="button"
-              data-testid={TEST_IDS.socialJoin}
-              onClick={onSocialJoin}
-              disabled={socialBusy}
-              className="btn-warn"
-            >
-              加入
-            </button>
-            <span className="pill">当前：{activeSaveId}</span>
-          </div>
-
-          {socialUiError ? <div className="danger">{socialUiError}</div> : null}
-          {socialUiInfo ? <div className="meta">{socialUiInfo}</div> : null}
-
-          <div style={{ height: 10 }} />
-          <div className="meta">房间事件（ROOM_EVENT）：</div>
-          <div
-            data-testid={TEST_IDS.socialEventList}
-            style={{
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 10,
-              maxHeight: 200,
-              overflow: 'auto'
-            }}
-          >
-            {socialRoomEvents.length === 0 ? (
-              <div className="meta">暂无事件（提示：先点击“连接”，再触发创建/邀请/加入）</div>
-            ) : (
-              socialRoomEvents.map((it) => (
-                <div
-                  key={it.key}
-                  data-testid={TEST_IDS.socialEventItem}
-                  style={{
-                    border: '1px solid rgba(255,255,255,0.14)',
-                    borderRadius: 12,
-                    padding: 10,
-                    background: 'rgba(0,0,0,0.12)'
-                  }}
-                >
-                  {it.text}
-                </div>
-              ))
-            )}
-          </div>
-        </section>
+                ))
+              )}
+            </div>
+          </section>
+        ) : null}
 
         <section className="card" data-testid={TEST_IDS.pluginsCard}>
           <h2>Plugins（alpha / Task 21）</h2>
@@ -2316,6 +3001,47 @@ export function App() {
               ))
             )}
           </div>
+        </section>
+
+        <section className="card">
+          <h2>注册</h2>
+          <form onSubmit={onRegisterSubmit} className="chat">
+            <div className="split">
+              <input
+                data-testid={TEST_IDS.registerEmail}
+                value={registerEmail}
+                onChange={(e) => setRegisterEmail(e.target.value)}
+                placeholder="邮箱"
+                inputMode="email"
+              />
+              <input
+                data-testid={TEST_IDS.registerPassword}
+                value={registerPassword}
+                onChange={(e) => setRegisterPassword(e.target.value)}
+                placeholder="密码"
+                type="password"
+              />
+            </div>
+            <div style={{ height: 10 }} />
+            <input
+              data-testid={TEST_IDS.registerInviteCode}
+              value={registerInviteCode}
+              onChange={(e) => setRegisterInviteCode(e.target.value)}
+              placeholder="邀请码（邀请制时必填）"
+              autoComplete="off"
+            />
+            <div className="row">
+              <button data-testid={TEST_IDS.registerSubmit} type="submit" disabled={isRegistering} className="btn-ok">
+                {isRegistering ? '注册中…' : '注册'}
+              </button>
+              <span className="pill">注册成功后将自动登录</span>
+            </div>
+            {registerError ? (
+              <div className="danger" data-testid={TEST_IDS.registerError}>
+                {registerError}
+              </div>
+            ) : null}
+          </form>
         </section>
 
         <section className="card">
