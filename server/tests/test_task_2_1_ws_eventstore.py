@@ -66,6 +66,21 @@ def _recv_hello(ws: WebSocketTestSession) -> dict[str, object]:
     raise AssertionError("expected HELLO")
 
 
+def _recv_pong(ws: WebSocketTestSession) -> dict[str, object]:
+    for _ in range(1000):
+        msg = _recv_json_dict(ws)
+        if msg.get("type") == "PONG":
+            return msg
+    raise AssertionError("expected PONG")
+
+
+def _ack_and_wait_cursor(ws: WebSocketTestSession, *, cursor: int) -> None:
+    ws.send_json({"type": "ACK", "cursor": int(cursor)})
+    ws.send_json({"type": "PING", "payload": {"probe": "ack"}})
+    pong = _recv_pong(ws)
+    assert pong.get("cursor") == int(cursor)
+
+
 def _recv_event_frames(ws: WebSocketTestSession, expected_count: int) -> list[dict[str, object]]:
     out: list[dict[str, object]] = []
     for _ in range(50_000):
@@ -127,7 +142,7 @@ def test_ws_v1_eventstore_per_device_cursor_and_trim() -> None:
                 seqs.append(cast(int, f["seq"]))
             assert seqs == list(range(1, n + 1))
 
-            ws_a1.send_json({"type": "ACK", "cursor": trim_to})
+            _ack_and_wait_cursor(ws_a1, cursor=trim_to)
 
         url_b_all = f"/ws/v1?save_id={save_id}&resume_from=0&device_id={device_b}"
         with client.websocket_connect(url_b_all, headers=headers) as ws_b_all:
@@ -137,7 +152,7 @@ def test_ws_v1_eventstore_per_device_cursor_and_trim() -> None:
             for f in frames_b:
                 _assert_is_event_frame(f)
 
-            ws_b_all.send_json({"type": "ACK", "cursor": trim_to})
+            _ack_and_wait_cursor(ws_b_all, cursor=trim_to)
 
         with client.websocket_connect(url_a_hello, headers=headers) as ws_a_hello:
             hello_a = _recv_hello(ws_a_hello)
