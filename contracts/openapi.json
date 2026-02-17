@@ -2757,7 +2757,7 @@
   },
   "info": {
     "title": "para-server",
-    "version": "0.1.6"
+    "version": "0.1.7"
   },
   "openapi": "3.1.0",
   "paths": {

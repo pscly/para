@@ -100,7 +100,13 @@ jobs:
             throw "installer_path output missing"
           }
 
-          $installerPath = Join-Path $env:GITHUB_WORKSPACE $installerRel
+          # The previous step tries to emit a workspace-relative path, but be robust:
+          # if it is already absolute, don't Join-Path (would produce an invalid path).
+          if ([System.IO.Path]::IsPathRooted($installerRel)) {
+            $installerPath = $installerRel
+          } else {
+            $installerPath = Join-Path $env:GITHUB_WORKSPACE $installerRel
+          }
           if (!(Test-Path $installerPath)) {
             throw "installer not found: $installerPath"
           }
