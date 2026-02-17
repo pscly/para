@@ -45,6 +45,31 @@ jobs:
           set -euo pipefail
           npm -C client ci
 
+      - name: Package (Linux dir) (push main only)
+        id: package_linux_dir
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client run package:linux
+
+      - name: Verify Electron fuses (Linux) (push main only)
+        id: verify_fuses_linux
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client run verify:fuses -- --platform linux --appOutDir dist-electron/linux-unpacked
+
+      - name: Upload linux-unpacked artifacts (only on Linux package/fuses failure)
+        if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && always() && (steps.package_linux_dir.outcome == 'failure' || steps.verify_fuses_linux.outcome == 'failure') }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-unpacked-on-failure
+          path: client/dist-electron/linux-unpacked/**
+          if-no-files-found: ignore
+          retention-days: 7
+
       - name: Start dependencies (Postgres + Redis)
         shell: bash
         run: |

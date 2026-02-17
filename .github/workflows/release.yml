@@ -46,6 +46,9 @@ jobs:
       - name: Package (Windows NSIS)
         run: npm -C client run package:win
 
+      - name: Verify fuses (packaged binary)
+        run: npm -C client run verify:fuses
+
       - name: Resolve installer + sha256
         id: assets
         shell: pwsh
@@ -86,6 +89,70 @@ jobs:
 
           "installer_path=$installerRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
           "sha256_path=$shaRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Verify silent install (NSIS data dir)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $installerRel = "${{ steps.assets.outputs.installer_path }}"
+          if (-not $installerRel) {
+            throw "installer_path output missing"
+          }
+
+          $installerPath = Join-Path $env:GITHUB_WORKSPACE $installerRel
+          if (!(Test-Path $installerPath)) {
+            throw "installer not found: $installerPath"
+          }
+
+          $id = [System.Guid]::NewGuid().ToString('N')
+          $installDir = Join-Path $env:RUNNER_TEMP "para-install-$id"
+          $dataDir = Join-Path $env:RUNNER_TEMP "para-data-$id"
+
+          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
+          if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+
+          New-Item -ItemType Directory -Path $installDir | Out-Null
+          New-Item -ItemType Directory -Path $dataDir | Out-Null
+
+          # Note: NSIS requires /D= to be the last argument, and it must not be quoted.
+          $args = @(
+            '/S',
+            "/DATA_DIR=$dataDir",
+            "/D=$installDir"
+          )
+
+          $p = Start-Process -FilePath $installerPath -ArgumentList $args -Wait -PassThru
+          if ($p.ExitCode -ne 0) {
+            throw "installer exit code: $($p.ExitCode)"
+          }
+
+          $configDir = Join-Path $env:APPDATA 'Para Desktop'
+          $configPath = Join-Path $configDir 'para.config.json'
+          if (!(Test-Path $configPath)) {
+            throw "config not written: $configPath"
+          }
+
+          $json = Get-Content -Path $configPath -Raw | ConvertFrom-Json
+          $expected = ($dataDir -replace '\\', '/')
+          if ($json.userDataDir -ne $expected) {
+            throw "userDataDir mismatch. expected=$expected actual=$($json.userDataDir)"
+          }
+
+          foreach ($sub in @('logs', 'cache', 'plugins')) {
+            $p = Join-Path $dataDir $sub
+            if (!(Test-Path $p)) {
+              throw "missing data subdir: $p"
+            }
+          }
+
+          # 清理（避免污染后续步骤）
+          if (Test-Path $installDir) { Remove-Item -Recurse -Force $installDir }
+          if (Test-Path $dataDir) { Remove-Item -Recurse -Force $dataDir }
+          if (Test-Path $configPath) { Remove-Item -Force $configPath }
+          if (Test-Path $configDir) {
+            try { Remove-Item -Recurse -Force $configDir } catch { }
+          }
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
