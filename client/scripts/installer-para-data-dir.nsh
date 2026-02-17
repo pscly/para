@@ -63,7 +63,9 @@ Function ParaPathToJsonString
     ${If} $4 == "\\"
       StrCpy $1 "$1/"
     ${ElseIf} $4 == '"'
-      StrCpy $1 "$1\\\""
+      ; In NSIS strings, writing \" directly can confuse the parser.
+      ; Use $\\ for backslash and $\" for a literal double-quote to produce JSON \".
+      StrCpy $1 "$1$\\$\""
     ${Else}
       StrCpy $1 "$1$4"
     ${EndIf}
