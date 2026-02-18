@@ -164,21 +164,122 @@ export async function adminLogin(payload: AdminLoginPayload): Promise<AdminLogin
 }
 
 export type AdminFeatureFlags = {
-  plugins_enabled: boolean;
+  plugins_enabled?: boolean;
+  invite_registration_enabled?: boolean;
   [k: string]: unknown;
 };
+
+export type AdminFeatureFlagsUpdate = Partial<
+  Pick<AdminFeatureFlags, "plugins_enabled" | "invite_registration_enabled">
+>;
 
 export async function adminConfigGetFeatureFlags(): Promise<AdminFeatureFlags> {
   return apiRequestJson<AdminFeatureFlags>("/api/v1/admin/config/feature_flags", { method: "GET" });
 }
 
-export async function adminConfigPutFeatureFlags(payload: {
-  plugins_enabled: boolean;
-}): Promise<AdminFeatureFlags> {
+export async function adminConfigPutFeatureFlags(payload: AdminFeatureFlagsUpdate): Promise<AdminFeatureFlags> {
   return apiRequestJson<AdminFeatureFlags>("/api/v1/admin/config/feature_flags", {
     method: "PUT",
     body: payload,
   });
+}
+
+export type AdminInviteCodeCreateRequest = {
+  max_uses: number;
+  expires_at?: string | null;
+};
+
+export type AdminInviteCodeListItem = {
+  id: string;
+  code_prefix: string;
+  max_uses: number;
+  uses_count: number;
+  expires_at: string | null;
+  revoked_at: string | null;
+  created_at: string;
+};
+
+export type AdminInviteCodeCreateResponse = AdminInviteCodeListItem & {
+  code: string;
+};
+
+export type AdminInviteCodeListResponse = {
+  items: AdminInviteCodeListItem[];
+  next_offset: number | null;
+};
+
+export type AdminInviteCodesListParams = {
+  limit?: number;
+  offset?: number;
+};
+
+export async function adminInvitesList(
+  params: AdminInviteCodesListParams = {},
+): Promise<AdminInviteCodeListResponse> {
+  const q = new URLSearchParams();
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
+  if (params.offset !== undefined) q.set("offset", String(params.offset));
+
+  const qs = q.toString();
+  const path = qs ? `/api/v1/admin/invites?${qs}` : "/api/v1/admin/invites";
+  const res = await apiRequestJson<Partial<AdminInviteCodeListResponse>>(path, { method: "GET" });
+  return {
+    items: Array.isArray(res.items) ? res.items : [],
+    next_offset: typeof res.next_offset === "number" ? res.next_offset : null,
+  };
+}
+
+export async function adminInvitesCreate(
+  payload: AdminInviteCodeCreateRequest,
+): Promise<AdminInviteCodeCreateResponse> {
+  return apiRequestJson<AdminInviteCodeCreateResponse>("/api/v1/admin/invites", {
+    method: "POST",
+    body: payload,
+  });
+}
+
+export async function adminInvitesRevoke(invite_id: string): Promise<AdminInviteCodeListItem> {
+  const id = requireNonEmpty(invite_id, "invite_id");
+  return apiRequestJson<AdminInviteCodeListItem>(`/api/v1/admin/invites/${encodeURIComponent(id)}:revoke`, {
+    method: "POST",
+  });
+}
+
+export type AdminInviteRedemptionListItem = {
+  id: string;
+  invite_id: string;
+  user_id: string;
+  user_email: string;
+  used_at: string;
+};
+
+export type AdminInviteRedemptionListResponse = {
+  items: AdminInviteRedemptionListItem[];
+  next_offset: number | null;
+};
+
+export type AdminInviteRedemptionsListParams = {
+  limit?: number;
+  offset?: number;
+};
+
+export async function adminInvitesRedemptionsList(
+  invite_id: string,
+  params: AdminInviteRedemptionsListParams = {},
+): Promise<AdminInviteRedemptionListResponse> {
+  const id = requireNonEmpty(invite_id, "invite_id");
+  const q = new URLSearchParams();
+  if (params.limit !== undefined) q.set("limit", String(params.limit));
+  if (params.offset !== undefined) q.set("offset", String(params.offset));
+  const qs = q.toString();
+  const path = qs
+    ? `/api/v1/admin/invites/${encodeURIComponent(id)}/redemptions?${qs}`
+    : `/api/v1/admin/invites/${encodeURIComponent(id)}/redemptions`;
+  const res = await apiRequestJson<Partial<AdminInviteRedemptionListResponse>>(path, { method: "GET" });
+  return {
+    items: Array.isArray(res.items) ? res.items : [],
+    next_offset: typeof res.next_offset === "number" ? res.next_offset : null,
+  };
 }
 
 export type AdminConfigJsonObject = Record<string, unknown>;

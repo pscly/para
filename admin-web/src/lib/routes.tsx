@@ -13,6 +13,7 @@ import { clearAdminSession, isAdminAuthed, loadAdminSession } from "./auth";
 import { AuditLogsPage } from "../pages/AuditLogsPage";
 import { DashboardPage } from "../pages/DashboardPage";
 import { FeatureFlagsPage } from "../pages/FeatureFlagsPage";
+import { InvitesPage } from "../pages/InvitesPage";
 import { LoginPage } from "../pages/LoginPage";
 import { LlmChannelsPage } from "../pages/LlmChannelsPage";
 import { LlmRoutingPage } from "../pages/LlmRoutingPage";
@@ -40,6 +41,7 @@ function AppLayout() {
       [
         { to: "/", label: "概览" },
         { to: "/config/feature-flags", label: "Feature Flags" },
+        { to: "/config/invites", label: "邀请码" },
         { to: "/config/audit-logs", label: "审计日志" },
         { to: "/ai/models", label: "Models" },
         { to: "/ai/channels", label: "Channels" },
@@ -140,6 +142,7 @@ const routes = [
     children: [
       { index: true, element: <DashboardPage /> },
       { path: "config/feature-flags", element: <FeatureFlagsPage /> },
+      { path: "config/invites", element: <InvitesPage /> },
       { path: "config/audit-logs", element: <AuditLogsPage /> },
       { path: "ai/models", element: <ModelsPage /> },
       { path: "ai/channels", element: <LlmChannelsPage /> },

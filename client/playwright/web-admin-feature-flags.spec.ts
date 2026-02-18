@@ -24,6 +24,7 @@ type BackendStub = {
   baseUrl: string;
   adminEmail: string;
   adminPassword: string;
+  adminFeatureFlagsPutBodies: unknown[];
   close: () => Promise<void>;
 };
 
@@ -81,8 +82,16 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
   res.end(JSON.stringify(payload));
 }
 
-async function startStubBackend(opts: { pluginsEnabledInitial: boolean; plugin: ApprovedPlugin }): Promise<BackendStub> {
+async function startStubBackend(opts: {
+  pluginsEnabledInitial: boolean;
+  inviteRegistrationEnabledInitial?: boolean;
+  plugin: ApprovedPlugin;
+}): Promise<BackendStub> {
   let pluginsEnabled = Boolean(opts.pluginsEnabledInitial);
+  let inviteRegistrationEnabled =
+    typeof opts.inviteRegistrationEnabledInitial === 'boolean' ? opts.inviteRegistrationEnabledInitial : true;
+
+  const adminFeatureFlagsPutBodies: unknown[] = [];
 
   const adminEmail = 'admin@local';
   const adminPassword = 'admin-password';
@@ -117,7 +126,10 @@ async function startStubBackend(opts: { pluginsEnabledInitial: boolean; plugin: 
     if (method === 'GET' && (url === '/api/v1/feature_flags' || url.startsWith('/api/v1/feature_flags?'))) {
       writeJson(res, 200, {
         generated_at: new Date().toISOString(),
-        feature_flags: { plugins_enabled: pluginsEnabled }
+        feature_flags: {
+          plugins_enabled: pluginsEnabled,
+          invite_registration_enabled: inviteRegistrationEnabled
+        }
       });
       return;
     }
@@ -185,7 +197,10 @@ async function startStubBackend(opts: { pluginsEnabledInitial: boolean; plugin: 
         writeJson(res, 401, { detail: 'unauthorized' });
         return;
       }
-      writeJson(res, 200, { plugins_enabled: pluginsEnabled });
+      writeJson(res, 200, {
+        plugins_enabled: pluginsEnabled,
+        invite_registration_enabled: inviteRegistrationEnabled
+      });
       return;
     }
 
@@ -197,17 +212,41 @@ async function startStubBackend(opts: { pluginsEnabledInitial: boolean; plugin: 
       }
 
       const parsed = await readJsonBody(req);
-      const nextEnabled =
-        typeof parsed === 'object' && parsed !== null && 'plugins_enabled' in parsed
-          ? (parsed as { plugins_enabled?: unknown }).plugins_enabled
-          : undefined;
-      if (typeof nextEnabled !== 'boolean') {
-        writeJson(res, 400, { detail: 'plugins_enabled must be a boolean' });
+
+      const hasPluginsEnabled = typeof parsed === 'object' && parsed !== null && 'plugins_enabled' in parsed;
+      const hasInviteRegistrationEnabled =
+        typeof parsed === 'object' && parsed !== null && 'invite_registration_enabled' in parsed;
+      if (!hasPluginsEnabled && !hasInviteRegistrationEnabled) {
+        writeJson(res, 400, {
+          detail: 'Body must contain at least one of: plugins_enabled, invite_registration_enabled'
+        });
         return;
       }
 
-      pluginsEnabled = nextEnabled;
-      writeJson(res, 200, { plugins_enabled: pluginsEnabled });
+      if (hasPluginsEnabled) {
+        const v = (parsed as { plugins_enabled?: unknown }).plugins_enabled;
+        if (typeof v !== 'boolean') {
+          writeJson(res, 400, { detail: 'plugins_enabled must be a boolean' });
+          return;
+        }
+        pluginsEnabled = v;
+      }
+
+      if (hasInviteRegistrationEnabled) {
+        const v = (parsed as { invite_registration_enabled?: unknown }).invite_registration_enabled;
+        if (typeof v !== 'boolean') {
+          writeJson(res, 400, { detail: 'invite_registration_enabled must be a boolean' });
+          return;
+        }
+        inviteRegistrationEnabled = v;
+      }
+
+      adminFeatureFlagsPutBodies.push(parsed);
+
+      writeJson(res, 200, {
+        plugins_enabled: pluginsEnabled,
+        invite_registration_enabled: inviteRegistrationEnabled
+      });
       return;
     }
 
@@ -228,6 +267,7 @@ async function startStubBackend(opts: { pluginsEnabledInitial: boolean; plugin: 
     baseUrl: `http://127.0.0.1:${port}`,
     adminEmail,
     adminPassword,
+    adminFeatureFlagsPutBodies,
     close: async () => {
       for (const s of sockets) {
         try {
@@ -337,17 +377,31 @@ async function startStaticAdminWebServer(distDir: string): Promise<AdminWebStati
   };
 }
 
-async function runNpmBuildAdminWeb(serverBaseUrl: string): Promise<void> {
+async function runViteBuildAdminWeb(opts: { serverBaseUrl: string; outDir: string }): Promise<void> {
   const npmCmd = process.platform === 'win32' ? 'npm.cmd' : 'npm';
+  const adminWebDir = path.resolve(process.cwd(), '..', 'admin-web');
 
   await new Promise<void>((resolve, reject) => {
-    const child = spawn(npmCmd, ['-C', '../admin-web', 'run', 'build'], {
-      stdio: 'inherit',
-      env: {
-        ...process.env,
-        VITE_SERVER_BASE_URL: serverBaseUrl
-      }
-    });
+    const child = spawn(
+      npmCmd,
+      [
+        'exec',
+        '--',
+        'vite',
+        'build',
+        '--emptyOutDir',
+        '--outDir',
+        opts.outDir
+      ],
+      {
+        cwd: adminWebDir,
+        stdio: 'inherit',
+        env: {
+          ...process.env,
+          VITE_SERVER_BASE_URL: opts.serverBaseUrl
+        }
+      },
+    );
 
     child.on('error', reject);
     child.on('exit', (code, signal) => {
@@ -432,6 +486,43 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function pollPluginsStatus(
+  page: Page,
+): Promise<{ enabled: boolean; running: boolean; installedKey: string | null; menuCount: number; lastError: string | null }> {
+  const v = await page.evaluate(async () => {
+    const api = (window as unknown as { desktopApi?: unknown }).desktopApi as
+      | {
+          plugins?: {
+            getStatus?: () => Promise<{
+              enabled?: unknown;
+              running?: unknown;
+              installed?: { id?: unknown; version?: unknown } | null;
+              menuItems?: unknown;
+              lastError?: unknown;
+            }>;
+          };
+        }
+      | undefined;
+    if (!api?.plugins?.getStatus) {
+      return { enabled: false, running: false, installedKey: null, menuCount: 0, lastError: 'NO_DESKTOP_API' };
+    }
+
+    const st = await api.plugins.getStatus();
+    const enabled = Boolean(st?.enabled);
+    const running = Boolean(st?.running);
+    const installed = st?.installed ?? null;
+    const installedId = installed && typeof installed.id === 'string' ? installed.id : '';
+    const installedVersion = installed && typeof installed.version === 'string' ? installed.version : '';
+    const installedKey = installedId && installedVersion ? `${installedId}@@${installedVersion}` : null;
+
+    const menuItems = st?.menuItems;
+    const menuCount = Array.isArray(menuItems) ? menuItems.length : 0;
+    const lastError = typeof st?.lastError === 'string' ? st.lastError : null;
+    return { enabled, running, installedKey, menuCount, lastError };
+  });
+  return v as { enabled: boolean; running: boolean; installedKey: string | null; menuCount: number; lastError: string | null };
+}
+
 test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plugins flag', async () => {
   test.setTimeout(180_000);
 
@@ -458,15 +549,20 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
 
   const stub = await startStubBackend({ pluginsEnabledInitial: false, plugin: approved });
   let staticServer: AdminWebStaticServer | null = null;
+  let adminWebBuildRoot: string | null = null;
 
   try {
     await test.step('Build admin-web (VITE_SERVER_BASE_URL -> stub backend)', async () => {
-      await runNpmBuildAdminWeb(stub.baseUrl);
+      const buildRoot = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-admin-web-feature-flags-'));
+      adminWebBuildRoot = buildRoot;
+      await runViteBuildAdminWeb({
+        serverBaseUrl: stub.baseUrl,
+        outDir: path.join(buildRoot, 'dist')
+      });
     });
 
     await test.step('Serve admin-web dist (SPA fallback)', async () => {
-      const distDir = path.resolve(process.cwd(), '..', 'admin-web', 'dist');
-      staticServer = await startStaticAdminWebServer(distDir);
+      staticServer = await startStaticAdminWebServer(path.join(adminWebBuildRoot!, 'dist'));
     });
 
     await test.step('Playwright web: login -> enable plugins_enabled -> save', async () => {
@@ -488,32 +584,65 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
 
         await expect(page.getByRole('heading', { name: 'Feature Flags' })).toBeVisible({ timeout: 15_000 });
 
+        await expect(
+          page.getByText('开启仅表示允许邀请码注册，不代表开放无邀请码注册。', { exact: true })
+        ).toBeVisible({ timeout: 15_000 });
+
         const saveBtn = page.getByRole('button', { name: '保存' });
         await expect(saveBtn).toBeVisible();
 
         const statusClean = page.getByText('与后端一致', { exact: true });
         await expect(statusClean).toBeVisible({ timeout: 15_000 });
 
-        const switchLabel = page.locator('label.switch').first();
-        await expect(switchLabel).toBeVisible();
+        const pluginsKv = page.locator('.kv').filter({ hasText: 'plugins_enabled' });
+        const inviteKv = page.locator('.kv').filter({ hasText: 'invite_registration_enabled' });
 
-        const checkbox = switchLabel.locator('input[type="checkbox"]');
-        await expect(checkbox).toBeEnabled({ timeout: 15_000 });
-        await expect(checkbox).not.toBeChecked();
-        await expect(page.getByText('DISABLED', { exact: true })).toBeVisible();
+        const pluginsSwitchLabel = pluginsKv.locator('label.switch');
+        const inviteSwitchLabel = inviteKv.locator('label.switch');
+        await expect(pluginsSwitchLabel).toBeVisible();
+        await expect(inviteSwitchLabel).toBeVisible();
+
+        const pluginsCheckbox = pluginsSwitchLabel.locator('input[type="checkbox"]');
+        await expect(pluginsCheckbox).toBeEnabled({ timeout: 15_000 });
+        await expect(pluginsCheckbox).not.toBeChecked();
+        await expect(pluginsKv.getByText('DISABLED', { exact: true })).toBeVisible();
+
+        const inviteCheckbox = inviteSwitchLabel.locator('input[type="checkbox"]');
+        await expect(inviteCheckbox).toBeEnabled({ timeout: 15_000 });
+        await expect(inviteCheckbox).toBeChecked();
+        await expect(inviteKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
         await expect(saveBtn).toBeDisabled();
 
-        await switchLabel.click();
+        await pluginsSwitchLabel.click();
 
         const dirtyText = page.getByText('存在未保存更改', { exact: true });
         await expect(dirtyText).toBeVisible({ timeout: 10_000 });
         await expect(saveBtn).toBeEnabled({ timeout: 10_000 });
-        await expect(page.getByText('ENABLED', { exact: true })).toBeVisible();
+        await expect(pluginsKv.getByText('ENABLED', { exact: true })).toBeVisible();
 
         await saveBtn.click();
         await expect(page.getByText('已保存', { exact: true })).toBeVisible({ timeout: 15_000 });
         await expect(statusClean).toBeVisible({ timeout: 15_000 });
-        await expect(page.getByText('ENABLED', { exact: true })).toBeVisible();
+        await expect(pluginsKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        expect(stub.adminFeatureFlagsPutBodies.length).toBe(1);
+        expect(stub.adminFeatureFlagsPutBodies[0]).toEqual({ plugins_enabled: true });
+
+        await inviteSwitchLabel.click();
+        await expect(dirtyText).toBeVisible({ timeout: 10_000 });
+        await expect(saveBtn).toBeEnabled({ timeout: 10_000 });
+        await expect(inviteKv.getByText('DISABLED', { exact: true })).toBeVisible();
+        await expect(pluginsKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        await saveBtn.click();
+        await expect(page.getByText('已保存', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await expect(statusClean).toBeVisible({ timeout: 15_000 });
+        await expect(inviteKv.getByText('DISABLED', { exact: true })).toBeVisible();
+        await expect(pluginsKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        expect(stub.adminFeatureFlagsPutBodies.length).toBe(2);
+        expect(stub.adminFeatureFlagsPutBodies[1]).toEqual({ invite_registration_enabled: false });
       } finally {
         await page.close().catch(() => undefined);
         await browser.close().catch(() => undefined);
@@ -547,11 +676,25 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
           await toggle.click();
 
           const consentPanel = debugPage.getByTestId(TEST_IDS.pluginsConsentPanel);
-          if (await consentPanel.isVisible().catch(() => false)) {
+          const needsConsent =
+            (await consentPanel.isVisible().catch(() => false)) ||
+            (await consentPanel
+              .waitFor({ state: 'visible', timeout: 1_500 })
+              .then(() => true)
+              .catch(() => false));
+          if (needsConsent) {
             const accept = debugPage.getByTestId(TEST_IDS.pluginsConsentAccept);
             await expect(accept).toBeVisible();
             await accept.click();
+            await consentPanel.waitFor({ state: 'hidden', timeout: 10_000 }).catch(() => undefined);
           }
+
+          await expect
+            .poll(async () => {
+              const st = await pollPluginsStatus(debugPage);
+              return st.enabled;
+            }, { timeout: 15_000 })
+            .toBe(true);
 
           const refresh = debugPage.getByTestId(TEST_IDS.pluginsRefresh);
           await expect(refresh).toBeVisible();
@@ -561,11 +704,25 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
           await expect(select).toBeVisible();
           await expect(select).toBeEnabled({ timeout: 10_000 });
           const pluginKey = `${pluginId}@@${pluginVersion}`;
+          await expect(select.locator(`option[value="${pluginKey}"]`)).toHaveCount(1, { timeout: 10_000 });
           await select.selectOption({ value: pluginKey });
 
           const install = debugPage.getByTestId(TEST_IDS.pluginsInstall);
           await expect(install).toBeVisible();
           await install.click();
+
+          await expect
+            .poll(async () => {
+              return pollPluginsStatus(debugPage);
+            }, { timeout: 30_000 })
+            .toMatchObject({ enabled: true, running: true, installedKey: pluginKey, lastError: null });
+
+          await expect
+            .poll(async () => {
+              const st = await pollPluginsStatus(debugPage);
+              return st.menuCount > 0;
+            }, { timeout: 30_000 })
+            .toBe(true);
 
           const firstMenuItem = debugPage.getByTestId(TEST_IDS.pluginsMenuItem).first();
           await expect(firstMenuItem).toBeVisible({ timeout: 20_000 });
@@ -578,6 +735,10 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
     if (staticServer) {
       await (staticServer as unknown as { close: () => Promise<void> }).close().catch(() => undefined);
       staticServer = null;
+    }
+    if (adminWebBuildRoot) {
+      await fs.promises.rm(adminWebBuildRoot, { recursive: true, force: true }).catch(() => undefined);
+      adminWebBuildRoot = null;
     }
     await (stub as unknown as { close: () => Promise<void> }).close().catch(() => undefined);
   }
