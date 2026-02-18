@@ -1,11 +1,10 @@
 {
-  "active_plan": "/root/1codes/1para/.sisyphus/plans/para-completion.md",
-  "started_at": "2026-02-16T03:34:53.876Z",
+  "active_plan": "/root/1codes/1para/.sisyphus/plans/first-user-admin-lockdown.md",
+  "started_at": "2026-02-18T10:01:44.512Z",
+  "updated_at": "2026-02-18T11:10:30Z",
   "session_ids": [
-    "ses_39bc0590effeMH2Kf94Wt7Wg3e",
-    "ses_395a4252fffeKTegyccFqPJ6pw",
-    "ses_3950d63c9ffev0I30AwwNzX9jf"
+    "ses_390086515ffeLdNF402SJM9xwC"
   ],
-  "plan_name": "para-completion",
+  "plan_name": "first-user-admin-lockdown",
   "agent": "atlas"
 }

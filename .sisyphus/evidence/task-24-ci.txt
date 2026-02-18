@@ -12,11 +12,11 @@ scan_blockers: OK
 ========== [STEP START] 契约漂移检查（OpenAPI + TS 生成物） ==========
 + ./scripts/generate-contracts.sh --check
 
-> ai-girlfriend-client@0.1.0 gen:api
+> ai-girlfriend-client@0.1.10 gen:api
 > node -e "require('fs').mkdirSync('src/gen',{recursive:true})" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts
 
 ✨ openapi-typescript 7.13.0
-🚀 ../contracts/openapi.json → src/gen/openapi.ts [238.2ms]
+🚀 ../contracts/openapi.json → src/gen/openapi.ts [252.4ms]
 
 ========== [STEP OK] 契约漂移检查（OpenAPI + TS 生成物） ==========
 
@@ -403,27 +403,27 @@ tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writ
     now = datetime.utcnow()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-====================== 83 passed, 678 warnings in 37.08s =======================
+====================== 83 passed, 678 warnings in 40.63s =======================
 
 ========== [STEP OK] Server 测试（pytest） ==========
 
 ========== [STEP START] Client 单测 ==========
 + npm -C client test
 
-> ai-girlfriend-client@0.1.0 test
+> ai-girlfriend-client@0.1.10 test
 > vitest run
 
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
-[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90m/root/1codes/1para/client[39m
+ RUN  v2.1.9 /root/1codes/1para/client
 
- [32m✓[39m tests/app.smoke.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 126[2mms[22m[39m
- [32m✓[39m tests/plugins-consent.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 194[2mms[22m[39m
+ ✓ tests/app.smoke.test.tsx (1 test) 143ms
+ ✓ tests/plugins-consent.test.tsx (1 test) 208ms
 
-[2m Test Files [22m [1m[32m2 passed[39m[22m[90m (2)[39m
-[2m      Tests [22m [1m[32m2 passed[39m[22m[90m (2)[39m
-[2m   Start at [22m 23:13:42
-[2m   Duration [22m 1.38s[2m (transform 197ms, setup 139ms, collect 461ms, tests 319ms, environment 1.01s, prepare 201ms)[22m
+ Test Files  2 passed (2)
+      Tests  2 passed (2)
+   Start at  16:48:21
+   Duration  1.55s (transform 249ms, setup 165ms, collect 607ms, tests 351ms, environment 1.06s, prepare 256ms)
 
 
 ========== [STEP OK] Client 单测 ==========
