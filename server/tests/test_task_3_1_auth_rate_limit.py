@@ -28,6 +28,31 @@ def _random_email(prefix: str) -> str:
     return f"{prefix}-{uuid.uuid4().hex}@example.com"
 
 
+def _admin_login(client: TestClient, *, email: str, password: str) -> str:
+    resp = client.post(
+        "/api/v1/admin/auth/login",
+        json={"email": email, "password": password},
+    )
+    assert resp.status_code == 200, resp.text
+    body = cast(dict[str, object], resp.json())
+    token = body.get("access_token")
+    assert isinstance(token, str) and token
+    return token
+
+
+def _admin_create_invite(client: TestClient, *, token: str, max_uses: int = 10) -> str:
+    resp = client.post(
+        "/api/v1/admin/invites",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"max_uses": max_uses},
+    )
+    assert resp.status_code == 201, resp.text
+    body = cast(dict[str, object], resp.json())
+    code = body.get("code")
+    assert isinstance(code, str) and code
+    return code
+
+
 def _set_rate_limit(*, enabled: bool, max_failures: int, window_seconds: int):
     old = (
         settings.auth_rate_limit_enabled,
@@ -230,9 +255,12 @@ def test_task_3_1_register_rate_limit_applies() -> None:
             key = auth_rate_limit_key(scope="auth_register", ip="testclient", identifier=None)
             _expire_key(key)
 
+            admin_token = _admin_login(client, email=email1, password=pw)
+            invite = _admin_create_invite(client, token=admin_token, max_uses=10)
+
             ok2 = client.post(
                 "/api/v1/auth/register",
-                json={"email": _random_email("user"), "password": pw},
+                json={"email": _random_email("user"), "password": pw, "invite_code": invite},
             )
             assert ok2.status_code == 201, ok2.text
     finally:

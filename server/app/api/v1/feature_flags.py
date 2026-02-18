@@ -22,7 +22,7 @@ router = APIRouter(prefix="/feature_flags", tags=["feature_flags"])
 
 
 def _default_feature_flags() -> dict[str, object]:
-    return {"plugins_enabled": False}
+    return {"plugins_enabled": False, "invite_registration_enabled": True}
 
 
 def _load_json_object(raw: str) -> dict[str, object]:
@@ -48,7 +48,11 @@ async def get_feature_flags(
 
     flags = _default_feature_flags()
     if row is not None:
-        flags.update(_load_json_object(row.value_json))
+        loaded = _load_json_object(row.value_json)
+        for k in list(flags.keys()):
+            v = loaded.get(k)
+            if isinstance(v, bool):
+                flags[k] = v
 
     now = datetime.utcnow().replace(microsecond=0)
     return {"generated_at": f"{now.isoformat()}Z", "feature_flags": flags}

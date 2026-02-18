@@ -68,11 +68,12 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         put_resp = client.put(
             "/api/v1/admin/config/feature_flags",
             headers=super_headers,
-            json={"plugins_enabled": True},
+            json={"plugins_enabled": True, "invite_registration_enabled": True},
         )
         assert put_resp.status_code == 200, put_resp.text
         put_data = cast(dict[str, object], put_resp.json())
         assert put_data.get("plugins_enabled") is True
+        assert put_data.get("invite_registration_enabled") is True
 
         ff_resp = client.get("/api/v1/feature_flags")
         assert ff_resp.status_code == 200, ff_resp.text
@@ -81,6 +82,7 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         flags = ff.get("feature_flags")
         assert isinstance(flags, dict)
         assert flags.get("plugins_enabled") is True
+        assert flags.get("invite_registration_enabled") is True
 
         op_token = _admin_login(client, email=operator.email, password=op_pw)
         op_headers = {"Authorization": f"Bearer {op_token}"}
@@ -89,6 +91,7 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         assert get_admin_flags.status_code == 200, get_admin_flags.text
         admin_flags = cast(dict[str, object], get_admin_flags.json())
         assert admin_flags.get("plugins_enabled") is True
+        assert admin_flags.get("invite_registration_enabled") is True
 
         op_put = client.put(
             "/api/v1/admin/config/feature_flags",
@@ -124,3 +127,76 @@ def test_task_22_admin_flags_put_requires_object_400() -> None:
             json="",
         )
         assert resp.status_code == 400, resp.text
+
+
+def test_task_22_admin_flags_partial_update_does_not_clear_other_overrides() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+
+        put1 = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"plugins_enabled": True, "invite_registration_enabled": True},
+        )
+        assert put1.status_code == 200, put1.text
+
+        put2 = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"invite_registration_enabled": False},
+        )
+        assert put2.status_code == 200, put2.text
+        data2 = cast(dict[str, object], put2.json())
+        assert data2.get("plugins_enabled") is True
+        assert data2.get("invite_registration_enabled") is False
+
+    expected_raw = json.dumps(
+        {"invite_registration_enabled": False, "plugins_enabled": True},
+        ensure_ascii=True,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    with SessionLocal() as db:
+        row = db.execute(
+            select(AdminKV).where(AdminKV.namespace == "feature_flags", AdminKV.key == "global")
+        ).scalar_one_or_none()
+        assert row is not None
+        assert row.value_json == expected_raw
+
+
+def test_task_22_admin_flags_put_rejects_unknown_key_400() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+        resp = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"plugins_enabled": True, "nope": True},
+        )
+        assert resp.status_code == 400, resp.text
+        data = cast(dict[str, object], resp.json())
+        assert "Unknown feature flag" in str(data.get("detail"))
+
+
+def test_task_22_admin_flags_put_rejects_non_bool_400() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+        resp = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"invite_registration_enabled": "no"},
+        )
+        assert resp.status_code == 400, resp.text
+        data = cast(dict[str, object], resp.json())
+        assert data.get("detail") == "invite_registration_enabled must be a boolean"

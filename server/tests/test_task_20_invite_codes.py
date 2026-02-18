@@ -1,13 +1,13 @@
 # pyright: reportMissingImports=false
 # pyright: reportUnknownVariableType=false
 # pyright: reportUnknownMemberType=false
-# pyright: reportAny=false
 # pyright: reportUnknownArgumentType=false
 
 from __future__ import annotations
 
 import json
 import uuid
+from typing import cast
 
 from fastapi.testclient import TestClient
 from sqlalchemy import select, text
@@ -50,7 +50,7 @@ def _admin_login(client: TestClient, *, email: str, password: str) -> str:
         json={"email": email, "password": password},
     )
     assert resp.status_code == 200
-    body = resp.json()
+    body = cast(dict[str, object], resp.json())
     assert body.get("token_type") == "bearer"
     token = body.get("access_token")
     assert isinstance(token, str) and token
@@ -69,7 +69,7 @@ def _admin_create_invite(
         json={"max_uses": max_uses},
     )
     assert resp.status_code == 201
-    data = resp.json()
+    data = cast(dict[str, object], resp.json())
     invite_id = data.get("id")
     code = data.get("code")
     assert isinstance(invite_id, str) and invite_id
@@ -82,12 +82,19 @@ def test_task_20_register_requires_invite_in_prod() -> None:
     settings.env = "production"
     try:
         with TestClient(app) as client:
+            boot = client.post(
+                "/api/v1/auth/register",
+                json={"email": _random_email("user"), "password": "password123"},
+            )
+
+            assert boot.status_code == 201, boot.text
+
             resp = client.post(
                 "/api/v1/auth/register",
                 json={"email": _random_email("user"), "password": "password123"},
             )
             assert resp.status_code == 403
-            assert resp.json().get("detail") == "invite_code_required"
+            assert cast(dict[str, object], resp.json()).get("detail") == "invite_code_required"
     finally:
         settings.env = prev_env
 
@@ -136,7 +143,7 @@ def test_task_20_invite_register_one_time_and_admin_audit() -> None:
                 },
             )
             assert r2.status_code == 403
-            assert r2.json().get("detail") == "invite_code_exhausted"
+            assert cast(dict[str, object], r2.json()).get("detail") == "invite_code_exhausted"
         finally:
             settings.env = prev_env
 
@@ -146,7 +153,7 @@ def test_task_20_invite_register_one_time_and_admin_audit() -> None:
             params={"limit": 50, "offset": 0},
         )
         assert lst.status_code == 200
-        body = lst.json()
+        body = cast(dict[str, object], lst.json())
         items = body.get("items")
         assert isinstance(items, list)
         assert any(isinstance(it, dict) and it.get("id") == invite_id for it in items)
@@ -158,7 +165,7 @@ def test_task_20_invite_register_one_time_and_admin_audit() -> None:
             params={"limit": 50, "offset": 0},
         )
         assert red.status_code == 200
-        red_items = red.json().get("items")
+        red_items = cast(dict[str, object], red.json()).get("items")
         assert isinstance(red_items, list)
         assert len(red_items) == 1
         assert isinstance(red_items[0], dict)
@@ -171,7 +178,7 @@ def test_task_20_invite_register_one_time_and_admin_audit() -> None:
             headers=super_headers,
         )
         assert rev.status_code == 200
-        assert rev.json().get("revoked_at") is not None
+        assert cast(dict[str, object], rev.json()).get("revoked_at") is not None
 
     with SessionLocal() as db:
         inv = db.get(InviteCode, invite_id)
@@ -194,6 +201,6 @@ def test_task_20_invite_register_one_time_and_admin_audit() -> None:
         assert "invite_code.revoke" in actions
 
         for r in audit_rows:
-            meta_obj = json.loads(r.metadata_json)
+            meta_obj = cast(object, json.loads(r.metadata_json))
             assert isinstance(meta_obj, dict)
             assert "code" not in meta_obj

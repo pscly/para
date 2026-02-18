@@ -1,5 +1,8 @@
+# pyright: reportUnusedFunction=false
 import sys
 from pathlib import Path
+
+import pytest
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -58,3 +61,17 @@ def _ensure_test_schema() -> None:
 
 
 _ensure_test_schema()
+
+
+@pytest.fixture(autouse=True)
+def _isolate_db() -> None:
+    from app.db.base import Base
+    from app.db.session import engine
+
+    tables = list(Base.metadata.sorted_tables)
+    if not tables:
+        return
+
+    with engine.begin() as conn:
+        for t in reversed(tables):
+            _ = conn.execute(t.delete())

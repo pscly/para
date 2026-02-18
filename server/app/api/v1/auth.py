@@ -8,7 +8,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 import hashlib
-from typing import NoReturn
+import json
+from typing import NoReturn, cast
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -31,6 +32,8 @@ from app.core.security import (
     verify_password,
 )
 from app.db.models import (
+    AdminKV,
+    AdminUser,
     Device,
     InviteCode,
     InviteRedemption,
@@ -133,6 +136,90 @@ def _maybe_record_failure(db: Session, limiter: AuthRateLimiter, *, key: str) ->
             pass
 
 
+def _load_json_object(raw: str) -> dict[str, object]:
+    try:
+        val = cast(object, json.loads(raw))
+    except Exception:
+        return {}
+    if isinstance(val, dict):
+        return cast(dict[str, object], val)
+    return {}
+
+
+def _invite_registration_enabled(db: Session) -> bool:
+    row = db.execute(
+        select(AdminKV).where(AdminKV.namespace == "feature_flags", AdminKV.key == "global")
+    ).scalar_one_or_none()
+    if row is None:
+        return True
+
+    loaded = _load_json_object(row.value_json)
+    v = loaded.get("invite_registration_enabled")
+    if isinstance(v, bool):
+        return v
+    return True
+
+
+def _acquire_bootstrap_lock(db: Session) -> None:
+    namespace = "bootstrap"
+    key = "first_user"
+    for _ in range(10):
+        row = db.execute(
+            select(AdminKV)
+            .where(AdminKV.namespace == namespace, AdminKV.key == key)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if row is not None:
+            return
+
+        db.add(AdminKV(namespace=namespace, key=key, value_json="{}"))
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            continue
+
+        row2 = db.execute(
+            select(AdminKV)
+            .where(AdminKV.namespace == namespace, AdminKV.key == key)
+            .with_for_update()
+        ).scalar_one_or_none()
+        if row2 is not None:
+            return
+
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail="bootstrap_lock_failed",
+    )
+
+
+def _reserve_invite_for_registration(
+    db: Session,
+    limiter: AuthRateLimiter,
+    *,
+    key: str,
+    invite_raw: str,
+    now: datetime,
+) -> InviteCode:
+    invite_hash = hashlib.sha256(invite_raw.encode("utf-8")).hexdigest()
+    reserved = db.execute(
+        select(InviteCode).where(InviteCode.code_hash == invite_hash).with_for_update()
+    ).scalar_one_or_none()
+    if reserved is None:
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_invalid")
+    if reserved.revoked_at is not None:
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_revoked")
+    if reserved.expires_at is not None and reserved.expires_at <= now:
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_expired")
+    if reserved.uses_count >= reserved.max_uses:
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_exhausted")
+    return reserved
+
+
 def _get_current_user_id(creds: HTTPAuthorizationCredentials | None) -> str:
     if creds is None:
         _unauthorized()
@@ -192,54 +279,41 @@ async def register(
         )
 
     invite_raw = (payload.invite_code or "").strip()
-    invite_required = settings.env.strip().lower() in ("prod", "production")
-    if invite_required and invite_raw == "":
-        _maybe_record_failure(db, limiter, key=key)
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="invite_code_required",
-        )
 
-    now = datetime.utcnow()
-    reserved_invite: InviteCode | None = None
-    if invite_raw != "":
-        invite_hash = hashlib.sha256(invite_raw.encode("utf-8")).hexdigest()
-        reserved_invite = db.execute(
-            select(InviteCode).where(InviteCode.code_hash == invite_hash).with_for_update()
-        ).scalar_one_or_none()
-        if reserved_invite is None:
+    any_user = db.execute(select(User.id).limit(1)).scalar_one_or_none()
+    if any_user is None:
+        _acquire_bootstrap_lock(db)
+        any_user = db.execute(select(User.id).limit(1)).scalar_one_or_none()
+
+    is_bootstrap = any_user is None
+
+    if not is_bootstrap:
+        if not _invite_registration_enabled(db):
             _maybe_record_failure(db, limiter, key=key)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="invite_code_invalid",
-            )
-        if reserved_invite.revoked_at is not None:
-            _maybe_record_failure(db, limiter, key=key)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="invite_code_revoked",
-            )
-        if reserved_invite.expires_at is not None and reserved_invite.expires_at <= now:
-            _maybe_record_failure(db, limiter, key=key)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="invite_code_expired",
-            )
-        if reserved_invite.uses_count >= reserved_invite.max_uses:
-            _maybe_record_failure(db, limiter, key=key)
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="invite_code_exhausted",
-            )
-        reserved_invite.uses_count += 1
-        reserved_invite.updated_at = now
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="registration_closed")
 
     existing = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
     if existing is not None:
         _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
-    user = User(email=email, password_hash=hash_password(payload.password))
+    now = datetime.utcnow()
+    reserved_invite: InviteCode | None = None
+    if not is_bootstrap and invite_raw == "":
+        _maybe_record_failure(db, limiter, key=key)
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_required")
+    if invite_raw != "":
+        reserved_invite = _reserve_invite_for_registration(
+            db,
+            limiter,
+            key=key,
+            invite_raw=invite_raw,
+            now=now,
+        )
+
+    pw_hash = hash_password(payload.password)
+
+    user = User(email=email, password_hash=pw_hash)
     db.add(user)
     try:
         db.flush()
@@ -248,7 +322,19 @@ async def register(
         _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
+    if is_bootstrap:
+        db.add(
+            AdminUser(
+                email=email,
+                password_hash=pw_hash,
+                role="super_admin",
+                is_active=True,
+            )
+        )
+
     if reserved_invite is not None:
+        reserved_invite.uses_count += 1
+        reserved_invite.updated_at = now
         db.add(
             InviteRedemption(
                 invite_id=reserved_invite.id,

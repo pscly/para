@@ -33,10 +33,19 @@ def _random_email() -> str:
     return f"test-{uuid.uuid4().hex}@example.com"
 
 
-def _register(client: TestClient, *, email: str, password: str) -> TokenPair:
+def _register(
+    client: TestClient,
+    *,
+    email: str,
+    password: str,
+    invite_code: str | None = None,
+) -> TokenPair:
+    body: dict[str, object] = {"email": email, "password": password}
+    if isinstance(invite_code, str) and invite_code.strip() != "":
+        body["invite_code"] = invite_code.strip()
     resp = client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password},
+        json=body,
     )
     assert resp.status_code == 201, resp.text
     data = cast(TokenPair, resp.json())
@@ -72,6 +81,19 @@ def _admin_login(client: TestClient, *, email: str, password: str) -> str:
     return token
 
 
+def _admin_create_invite(client: TestClient, *, headers: dict[str, str], max_uses: int = 1) -> str:
+    resp = client.post(
+        "/api/v1/admin/invites",
+        headers=headers,
+        json={"max_uses": max_uses},
+    )
+    assert resp.status_code == 201, resp.text
+    body = cast(dict[str, object], resp.json())
+    code = body.get("code")
+    assert isinstance(code, str) and code
+    return code
+
+
 def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None:
     email = _random_email()
     password = "password123"
@@ -81,8 +103,12 @@ def test_task_20_ugc_upload_approve_then_list_approved_writes_evidence() -> None
         access = tokens["access_token"]
         headers = {"Authorization": f"Bearer {access}"}
 
+        bootstrap_admin_token = _admin_login(client, email=email, password=password)
+        bootstrap_admin_headers = {"Authorization": f"Bearer {bootstrap_admin_token}"}
+        invite = _admin_create_invite(client, headers=bootstrap_admin_headers, max_uses=1)
+
         other_email = _random_email()
-        other_tokens = _register(client, email=other_email, password=password)
+        other_tokens = _register(client, email=other_email, password=password, invite_code=invite)
         other_access = other_tokens["access_token"]
         other_headers = {"Authorization": f"Bearer {other_access}"}
 

@@ -163,7 +163,7 @@ async def admin_put_prompts(
 
 
 def _default_feature_flags() -> dict[str, object]:
-    return {"plugins_enabled": False}
+    return {"plugins_enabled": False, "invite_registration_enabled": True}
 
 
 @router.get(
@@ -179,7 +179,10 @@ async def admin_get_feature_flags(
         return _default_feature_flags()
     loaded = _load_json_object(row.value_json)
     merged = _default_feature_flags()
-    merged.update(loaded)
+    for k in list(merged.keys()):
+        v = loaded.get(k)
+        if isinstance(v, bool):
+            merged[k] = v
     return merged
 
 
@@ -193,19 +196,60 @@ async def admin_put_feature_flags(
     db: Session = Depends(get_db),
 ) -> dict[str, object]:
     obj = _require_object(payload)
-    if "plugins_enabled" not in obj or not isinstance(obj.get("plugins_enabled"), bool):
+
+    allowed_keys = {"plugins_enabled", "invite_registration_enabled"}
+    unknown_keys = sorted([k for k in obj.keys() if k not in allowed_keys])
+    if unknown_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Unknown feature flag key(s): {', '.join(unknown_keys)}",
+        )
+
+    provided_keys = [k for k in ("plugins_enabled", "invite_registration_enabled") if k in obj]
+    if not provided_keys:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must contain at least one of: plugins_enabled, invite_registration_enabled",
+        )
+
+    if "plugins_enabled" in obj and not isinstance(obj.get("plugins_enabled"), bool):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="plugins_enabled must be a boolean",
         )
+    if "invite_registration_enabled" in obj and not isinstance(
+        obj.get("invite_registration_enabled"), bool
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="invite_registration_enabled must be a boolean",
+        )
 
     prev_row = _get_kv(db, namespace="feature_flags", key="global")
-    prev_loaded = _load_json_object(prev_row.value_json) if prev_row is not None else {}
+    prev_loaded_raw = _load_json_object(prev_row.value_json) if prev_row is not None else {}
+    prev_loaded: dict[str, object] = {
+        k: cast(object, v)
+        for k, v in prev_loaded_raw.items()
+        if k in allowed_keys and isinstance(v, bool)
+    }
     prev_merged = _default_feature_flags()
     prev_merged.update(prev_loaded)
 
-    stored = _upsert_kv(db, namespace="feature_flags", key="global", value_obj=obj)
-    merged = _default_feature_flags()
+    defaults = _default_feature_flags()
+    next_overrides: dict[str, object] = dict(prev_loaded)
+    for k in provided_keys:
+        v = obj.get(k)
+        if v == defaults.get(k):
+            _ = next_overrides.pop(k, None)
+        else:
+            next_overrides[k] = cast(object, v)
+
+    if prev_row is None and not next_overrides:
+        stored: dict[str, object] = {}
+    else:
+        stored = _upsert_kv(db, namespace="feature_flags", key="global", value_obj=next_overrides)
+
+    merged = dict(defaults)
     merged.update(stored)
 
     changed_keys = sorted(

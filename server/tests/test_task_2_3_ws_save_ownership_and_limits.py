@@ -31,15 +31,50 @@ def _random_email() -> str:
 
 
 def _register(client: TestClient, *, email: str, password: str) -> TokenPair:
+    return _register2(client, email=email, password=password, invite_code=None)
+
+
+def _register2(
+    client: TestClient,
+    *,
+    email: str,
+    password: str,
+    invite_code: str | None,
+) -> TokenPair:
+    body: dict[str, object] = {"email": email, "password": password}
+    if isinstance(invite_code, str) and invite_code.strip() != "":
+        body["invite_code"] = invite_code.strip()
     resp = client.post(
         "/api/v1/auth/register",
-        json={"email": email, "password": password},
+        json=body,
     )
     assert resp.status_code == 201, resp.text
     data = cast(TokenPair, resp.json())
     assert "access_token" in data
     assert "refresh_token" in data
     return data
+
+
+def _admin_login(client: TestClient, *, email: str, password: str) -> str:
+    r = client.post("/api/v1/admin/auth/login", json={"email": email, "password": password})
+    assert r.status_code == 200, r.text
+    body = cast(dict[str, object], r.json())
+    token = body.get("access_token")
+    assert isinstance(token, str) and token
+    return token
+
+
+def _admin_create_invite(client: TestClient, *, admin_token: str, max_uses: int = 1) -> str:
+    r = client.post(
+        "/api/v1/admin/invites",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"max_uses": max_uses},
+    )
+    assert r.status_code == 201, r.text
+    body = cast(dict[str, object], r.json())
+    code = body.get("code")
+    assert isinstance(code, str) and code
+    return code
 
 
 def _get_user_id(client: TestClient, *, access_token: str) -> str:
@@ -87,8 +122,11 @@ def test_task_2_3_ws_v1_rejects_connecting_to_non_owned_save() -> None:
     password = "password123"
 
     with TestClient(app) as client:
-        tokens1 = _register(client, email=_random_email(), password=password)
-        tokens2 = _register(client, email=_random_email(), password=password)
+        email1 = _random_email()
+        tokens1 = _register(client, email=email1, password=password)
+        admin_token = _admin_login(client, email=email1, password=password)
+        invite = _admin_create_invite(client, admin_token=admin_token, max_uses=1)
+        tokens2 = _register2(client, email=_random_email(), password=password, invite_code=invite)
 
         access1 = tokens1["access_token"]
         access2 = tokens2["access_token"]
