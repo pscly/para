@@ -121,6 +121,19 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function navigateToSettingsPage(page: Page): Promise<void> {
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+  } catch {
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = '#/settings';
+  });
+
+  await expect(page.getByTestId(TEST_IDS.toggleVision)).toBeVisible({ timeout: 15_000 });
+}
+
 function getEvidencePath(filename: string): string {
   return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', filename);
 }
@@ -170,6 +183,8 @@ test('Electron vision screenshot: gated by consent + shows suggestion', async ()
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await navigateToSettingsPage(page);
 
       const toggle = page.getByTestId(TEST_IDS.toggleVision);
       await expect(toggle).toBeVisible();

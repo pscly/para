@@ -124,6 +124,19 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function navigateToKnowledgePage(page: Page): Promise<void> {
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+  } catch {
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = '#/knowledge';
+  });
+
+  await expect(page.getByTestId(TEST_IDS.feedDropzone)).toBeVisible({ timeout: 15_000 });
+}
+
 function getEvidencePath(filename: string): string {
   return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', filename);
 }
@@ -173,6 +186,7 @@ test('Electron knowledge feed: drag .md, progress -> done', async () => {
 
     try {
       const page = await getDebugPanelPage(app);
+      await navigateToKnowledgePage(page);
 
       const dropzone = page.getByTestId(TEST_IDS.feedDropzone);
       await expect(dropzone).toBeVisible();
@@ -191,7 +205,7 @@ test('Electron knowledge feed: drag .md, progress -> done', async () => {
       await expect(page.getByTestId(TEST_IDS.feedProgress)).toBeVisible();
       await expect(page.getByTestId(TEST_IDS.feedDone)).toBeVisible();
 
-      const evidencePath = getEvidencePath('task-14-feed-progress.png');
+      const evidencePath = getEvidencePath('task-12-knowledge.png');
       await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
       await page.screenshot({ path: evidencePath, fullPage: true });
       expect(fs.existsSync(evidencePath)).toBeTruthy();

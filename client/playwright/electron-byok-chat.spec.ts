@@ -63,6 +63,26 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function navigateToSettingsPage(page: Page): Promise<void> {
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+  } catch {
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = '#/settings';
+  });
+
+  await expect(page.getByTestId(TEST_IDS.byokBaseUrl)).toBeVisible({ timeout: 15_000 });
+}
+
+async function navigateToChatPage(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.location.hash = '#/chat';
+  });
+  await expect(page.getByTestId(TEST_IDS.chatInput)).toBeVisible({ timeout: 15_000 });
+}
+
 async function startOpenAiChatStubServer(opts: { expectedApiKey: string; replyText: string }): Promise<StubServer> {
   let requestCount = 0;
 
@@ -212,6 +232,8 @@ test('Electron BYOK chat-only: direct completion + no plaintext api_key on disk'
     try {
       const page = await getDebugPanelPage(app);
 
+      await navigateToSettingsPage(page);
+
       await page.getByTestId(TEST_IDS.byokBaseUrl).fill(stub.baseUrl);
       await page.getByTestId(TEST_IDS.byokModel).fill('gpt-test');
       await page.getByTestId(TEST_IDS.byokSave).click();
@@ -220,6 +242,8 @@ test('Electron BYOK chat-only: direct completion + no plaintext api_key on disk'
       await page.getByTestId(TEST_IDS.byokApiKeyUpdate).click();
 
       await page.getByTestId(TEST_IDS.byokToggle).click();
+
+      await navigateToChatPage(page);
 
       await page.getByTestId(TEST_IDS.chatInput).fill('hello');
       await page.getByTestId(TEST_IDS.chatSend).click();

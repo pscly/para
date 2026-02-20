@@ -130,6 +130,19 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function navigateToSettingsPage(page: Page): Promise<void> {
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+  } catch {
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = '#/settings';
+  });
+
+  await expect(page.getByTestId(TEST_IDS.toggleAssistant)).toBeVisible({ timeout: 15_000 });
+}
+
 function getEvidencePath(): string {
   return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-16-assistant-suggest.png');
 }
@@ -181,6 +194,8 @@ test('Electron assistant suggest: clipboard + idle', async () => {
 
       try {
         const page = await getDebugPanelPage(app);
+
+        await navigateToSettingsPage(page);
 
         const toggleAssistant = page.getByTestId(TEST_IDS.toggleAssistant);
         await expect(toggleAssistant).toBeVisible();

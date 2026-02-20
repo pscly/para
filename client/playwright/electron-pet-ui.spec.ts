@@ -8,7 +8,7 @@ import type { ElectronApplication, Page } from 'playwright';
 import electronPath from 'electron';
 
 function getEvidencePath(): string {
-  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-10-pet-ui.png');
+  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-14-pet.png');
 }
 
 async function waitForWindows(app: ElectronApplication, minCount: number): Promise<Page[]> {

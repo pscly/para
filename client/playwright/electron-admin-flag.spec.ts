@@ -287,6 +287,19 @@ async function getPetPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
+async function navigateToPluginsPage(page: Page): Promise<void> {
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+  } catch {
+  }
+
+  await page.evaluate(() => {
+    window.location.hash = '#/plugins';
+  });
+
+  await expect(page.getByTestId(TEST_IDS.pluginsCard)).toBeVisible({ timeout: 15_000 });
+}
+
 async function ensurePetWindowNotClickThrough(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {
     const wins = BrowserWindow.getAllWindows();
@@ -418,6 +431,8 @@ test('Task 22: admin flag toggles plugins kill-switch live (with evidence screen
 
         await test.step('Debug panel: enable local execution + refresh + install plugin (remote flag still false)', async () => {
           await debugPage.bringToFront();
+
+          await navigateToPluginsPage(debugPage);
 
           const pluginsCard = debugPage.getByTestId(TEST_IDS.pluginsCard);
           await pluginsCard.scrollIntoViewIfNeeded();

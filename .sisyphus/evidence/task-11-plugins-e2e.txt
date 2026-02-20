@@ -1,0 +1,13 @@
+Task 11 - Plugins E2E evidence
+
+Command:
+  npm -C client run e2e -- electron-plugin.spec.ts
+Result (key lines):
+  ✓  1 playwright/electron-plugin.spec.ts:254:5 › Task 21: plugin default-off + enable + install + pet bubble (with evidence screenshot)
+  1 passed
+
+Command:
+  npm -C client run e2e -- electron-admin-flag.spec.ts
+Result (key lines):
+  ✓  1 playwright/electron-admin-flag.spec.ts:370:5 › Task 22: admin flag toggles plugins kill-switch live (with evidence screenshot)
+  1 passed

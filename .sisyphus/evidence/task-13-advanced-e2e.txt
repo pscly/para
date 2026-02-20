@@ -1,0 +1,16 @@
+Task 13 - Advanced capabilities E2E evidence
+
+Command:
+  npm -C client run e2e -- electron-byok-chat.spec.ts
+Result (key lines):
+  1 passed
+
+Command:
+  npm -C client run e2e -- electron-vision-screenshot.spec.ts
+Result (key lines):
+  1 passed
+
+Command:
+  npm -C client run e2e -- electron-assistant-suggest.spec.ts
+Result (key lines):
+  1 passed
