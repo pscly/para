@@ -1,0 +1,10 @@
+Task 16 - desktopApi typings convergence evidence
+
+Command:
+  npm -C client run lint
+Result:
+  PASS (tsc --noEmit)
+
+Notes:
+  - Reduced renderer-side `as any` usage by leaning on `Window['desktopApi']` types.
+  - SettingsPage now uses typed update/userData/byok/vision APIs without casting.
