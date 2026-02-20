@@ -1,0 +1,5 @@
+Electron smoke copy scan
+routes=["#/chat","#/updates"]
+forbidden=["调试","Task","最小 UI","离线模拟"]
+hits=[]
+hitsByRoute={"#/chat":[],"#/updates":[]}

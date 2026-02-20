@@ -22,7 +22,7 @@ type StubServer = {
 const WS_GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
 
 function getEvidencePath(): string {
-  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-8-chat-stream.png');
+  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-9-chat-stream.png');
 }
 
 async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
@@ -218,7 +218,8 @@ async function startWsStubServer(): Promise<StubServer> {
     const startStreaming = (clientRequestId: unknown) => {
       stopStreaming();
 
-      const tokenChars = Array.from('AI: ok');
+      const streamingStressText = `AI: ${'streaming '.repeat(40)}ok`;
+      const tokenChars = Array.from(streamingStressText);
       let idx = 0;
 
       const sendNext = () => {
@@ -250,7 +251,7 @@ async function startWsStubServer(): Promise<StubServer> {
       };
 
       sendNext();
-      streamingTimer = setInterval(sendNext, 40);
+      streamingTimer = setInterval(sendNext, 12);
     };
 
     const cleanup = () => {
@@ -409,6 +410,10 @@ test('Electron chat stream: first token within 3s', async () => {
       try {
         const page = await getDebugPanelPage(app);
 
+        await page.evaluate(() => {
+          window.location.hash = '#/chat';
+        });
+
         await expect(page.getByTestId(TEST_IDS.chatInput)).toBeVisible();
 
         await page.getByRole('button', { name: '连接' }).click();
@@ -420,6 +425,9 @@ test('Electron chat stream: first token within 3s', async () => {
         await page.getByTestId(TEST_IDS.chatSend).click();
 
         await expect(page.getByTestId(TEST_IDS.chatLastAiMessage)).toContainText('AI:', { timeout: 3_000 });
+
+        await page.getByTestId(TEST_IDS.chatInput).fill('typing while streaming');
+        await expect(page.getByTestId(TEST_IDS.chatInput)).toHaveValue('typing while streaming');
 
         const evidencePath = getEvidencePath();
         await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });

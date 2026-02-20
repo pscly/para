@@ -347,6 +347,11 @@ test('Electron login: success', async () => {
     try {
       const page = await getDebugPanelPage(app);
 
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible();
+
       const email = 'user@example.com';
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
       await page.getByTestId(TEST_IDS.loginPassword).fill('correct-password');
@@ -359,6 +364,11 @@ test('Electron login: success', async () => {
       await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
       await page.screenshot({ path: evidencePath, fullPage: true });
       expect(fs.existsSync(evidencePath)).toBeTruthy();
+
+      const evidencePathTask7 = getEvidencePath('task-7-login-e2e.png');
+      await fs.promises.mkdir(path.dirname(evidencePathTask7), { recursive: true });
+      await page.screenshot({ path: evidencePathTask7, fullPage: true });
+      expect(fs.existsSync(evidencePathTask7)).toBeTruthy();
     } finally {
       await app.close();
     }
@@ -387,6 +397,11 @@ test('Electron login: fail', async () => {
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible();
 
       const email = 'user@example.com';
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
@@ -436,6 +451,11 @@ test('Electron login: enforce secure token storage (fails + no plaintext file)',
       });
 
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible();
 
       const email = 'user@example.com';
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
@@ -534,6 +554,11 @@ test('Electron login: secure token storage baseline (CI stable: fail-closed or e
       });
 
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible();
 
       const email = 'user@example.com';
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);

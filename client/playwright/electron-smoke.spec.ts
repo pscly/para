@@ -8,6 +8,18 @@ import electronPath from 'electron';
 
 import { TEST_IDS } from '../src/renderer/app/testIds';
 
+async function navigateHash(page: Page, hash: string, testIdToWaitFor: string): Promise<void> {
+  await page.evaluate((h) => {
+    window.location.hash = h;
+  }, hash);
+  await expect(page.getByTestId(testIdToWaitFor)).toBeVisible({ timeout: 15_000 });
+}
+
+async function getBodyText(page: Page): Promise<string> {
+  const text = await page.evaluate(() => document.body.innerText);
+  return typeof text === 'string' ? text : '';
+}
+
 async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   const timeoutMs = 5_000;
   const pollIntervalMs = 100;
@@ -49,7 +61,7 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   return bestPage;
 }
 
-test('Electron smoke: renders debug panel and has stable testids', async () => {
+test('Electron smoke: core routes render and stable testids exist', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
 
@@ -62,25 +74,65 @@ test('Electron smoke: renders debug panel and has stable testids', async () => {
     env
   });
 
-  const page = await getDebugPanelPage(app);
+  try {
+    const page = await getDebugPanelPage(app);
 
-  await expect(page.getByTestId(TEST_IDS.chatInput)).toBeVisible();
-  await expect(page.getByTestId(TEST_IDS.loginSubmit)).toBeVisible();
+    try {
+      await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+    } catch {
+    }
 
-  await expect(page.getByTestId(TEST_IDS.galleryGenerate)).toHaveCount(0);
-  await expect(page.getByTestId(TEST_IDS.timelineCard)).toHaveCount(0);
-  await expect(page.getByTestId(TEST_IDS.socialRoomCard)).toHaveCount(0);
+    await navigateHash(page, '#/login', TEST_IDS.loginSubmit);
+    await navigateHash(page, '#/chat', TEST_IDS.chatInput);
 
-  const evidencePath = path.resolve(
-    process.cwd(),
-    '..',
-    '.sisyphus',
-    'evidence',
-    'task-3-electron-smoke.png'
-  );
-  await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
-  await page.screenshot({ path: evidencePath, fullPage: true });
-  expect(fs.existsSync(evidencePath)).toBeTruthy();
+    // Forbidden copy smoke guard: scan all user-visible core routes.
+    const forbidden = ['调试', 'Task', '最小 UI', '离线模拟'];
+    const scannedRoutes = [
+      { hash: '#/chat', anchor: TEST_IDS.chatInput },
+      { hash: '#/updates', anchor: TEST_IDS.updateCard },
+    ] as const;
 
-  await app.close();
+    const hitsByRoute: Record<string, string[]> = {};
+    for (const r of scannedRoutes) {
+      await navigateHash(page, r.hash, r.anchor);
+      const bodyText = await getBodyText(page);
+      hitsByRoute[r.hash] = forbidden.filter((k) => bodyText.includes(k));
+    }
+
+    const hits = Array.from(new Set(Object.values(hitsByRoute).flat())).sort();
+
+    const copyEvidencePath = path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-15-smoke-and-copy.txt');
+    await fs.promises.mkdir(path.dirname(copyEvidencePath), { recursive: true });
+    await fs.promises.writeFile(
+      copyEvidencePath,
+      [
+        'Electron smoke copy scan',
+        `routes=${JSON.stringify(scannedRoutes.map((r) => r.hash))}`,
+        `forbidden=${JSON.stringify(forbidden)}`,
+        `hits=${JSON.stringify(hits)}`,
+        `hitsByRoute=${JSON.stringify(hitsByRoute)}`,
+      ].join('\n') + '\n',
+      { encoding: 'utf8' },
+    );
+    expect(fs.existsSync(copyEvidencePath)).toBeTruthy();
+
+    expect(hits).toEqual([]);
+
+    await expect(page.getByTestId(TEST_IDS.galleryGenerate)).toHaveCount(0);
+    await expect(page.getByTestId(TEST_IDS.timelineCard)).toHaveCount(0);
+    await expect(page.getByTestId(TEST_IDS.socialRoomCard)).toHaveCount(0);
+
+    const evidencePath = path.resolve(
+      process.cwd(),
+      '..',
+      '.sisyphus',
+      'evidence',
+      'task-3-electron-smoke.png'
+    );
+    await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
+    await page.screenshot({ path: evidencePath, fullPage: true });
+    expect(fs.existsSync(evidencePath)).toBeTruthy();
+  } finally {
+    await app.close();
+  }
 });

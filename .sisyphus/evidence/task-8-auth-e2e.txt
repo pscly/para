@@ -1,0 +1,7 @@
+[2026-02-19 00:00] Task 8 Auth E2E Evidence (summary)
+
+Command: npm -C client run e2e -- electron-login.spec.ts
+Result: PASS (4 passed)
+
+Command: npm -C client run e2e -- electron-register.spec.ts
+Result: PASS (2 passed)

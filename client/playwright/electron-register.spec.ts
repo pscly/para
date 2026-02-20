@@ -227,6 +227,7 @@ test('Electron register: invite required', async () => {
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
         PARA_USER_DATA_DIR: userDataDir
       }
@@ -234,6 +235,12 @@ test('Electron register: invite required', async () => {
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/dev/register';
+      });
+      await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
+
       const email = 'register-required@example.com';
 
       await page.getByTestId(TEST_IDS.registerEmail).fill(email);
@@ -271,6 +278,7 @@ test('Electron register: success + invite exhausted', async () => {
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
         PARA_USER_DATA_DIR: userDataDir
       }
@@ -278,6 +286,12 @@ test('Electron register: success + invite exhausted', async () => {
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/dev/register';
+      });
+      await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
+
       const email = 'register-success@example.com';
 
       await page.getByTestId(TEST_IDS.registerEmail).fill(email);
@@ -309,6 +323,7 @@ test('Electron register: success + invite exhausted', async () => {
       env: {
         ...process.env,
         NODE_ENV: 'test',
+        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
         PARA_USER_DATA_DIR: userDataDir
       }
@@ -316,6 +331,12 @@ test('Electron register: success + invite exhausted', async () => {
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await page.evaluate(() => {
+        window.location.hash = '#/dev/register';
+      });
+      await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
+
       const email = 'register-exhausted@example.com';
 
       await page.getByTestId(TEST_IDS.registerEmail).fill(email);
