@@ -1,0 +1,85 @@
+:root {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+    "Courier New", monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --radius-pill: 999px;
+
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.25);
+
+  --dur-1: 120ms;
+  --dur-2: 180ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --focus-ring: rgba(52, 211, 153, 0.18);
+
+  --bg0: #0b0c10;
+  --bg1: #0f172a;
+  --card: rgba(255, 255, 255, 0.06);
+  --card2: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #e5e7eb;
+  --muted: rgba(229, 231, 235, 0.75);
+  --accent: #34d399;
+  --accent2: #f59e0b;
+  --danger: #fb7185;
+}
+
+:root[data-theme='light'] {
+  --bg0: #fff7f2;
+  --bg1: #fff1e7;
+  --card: rgba(255, 255, 255, 0.82);
+  --card2: rgba(255, 255, 255, 0.92);
+  --line: rgba(20, 20, 25, 0.12);
+  --text: rgba(20, 20, 25, 0.92);
+  --muted: rgba(20, 20, 25, 0.62);
+
+  --accent: #ff6b6b;
+  --accent2: #ffb703;
+  --danger: #e11d48;
+
+  --shadow-card: 0 12px 28px rgba(20, 20, 25, 0.12);
+  --focus-ring: rgba(255, 107, 107, 0.22);
+}
+
+:root[data-theme='dark'] {
+  --bg0: #0b0c10;
+  --bg1: #0f172a;
+  --card: rgba(255, 255, 255, 0.06);
+  --card2: rgba(255, 255, 255, 0.1);
+  --line: rgba(255, 255, 255, 0.14);
+  --text: #e5e7eb;
+  --muted: rgba(229, 231, 235, 0.75);
+  --accent: #34d399;
+  --accent2: #f59e0b;
+  --danger: #fb7185;
+  --shadow-card: 0 10px 30px rgba(0, 0, 0, 0.25);
+  --focus-ring: rgba(52, 211, 153, 0.18);
+}
+
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme]) {
+    --bg0: #fff7f2;
+    --bg1: #fff1e7;
+    --card: rgba(255, 255, 255, 0.82);
+    --card2: rgba(255, 255, 255, 0.92);
+    --line: rgba(20, 20, 25, 0.12);
+    --text: rgba(20, 20, 25, 0.92);
+    --muted: rgba(20, 20, 25, 0.62);
+    --accent: #ff6b6b;
+    --accent2: #ffb703;
+    --danger: #e11d48;
+    --shadow-card: 0 12px 28px rgba(20, 20, 25, 0.12);
+    --focus-ring: rgba(255, 107, 107, 0.22);
+  }
+}

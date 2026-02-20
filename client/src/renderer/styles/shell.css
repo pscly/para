@@ -1,0 +1,51 @@
+.ui-shell {
+  height: 100%;
+  display: flex;
+}
+
+.ui-shell__sidebar {
+  padding-top: 14px;
+}
+
+.ui-shell__brand {
+  font-weight: 800;
+  letter-spacing: 0.4px;
+  font-size: 16px;
+  padding: 10px 10px 14px;
+}
+
+.ui-shell__nav {
+  display: grid;
+  gap: 8px;
+}
+
+.ui-shell__link {
+  text-decoration: none;
+  color: rgba(229, 231, 235, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+  padding: 10px 10px;
+  background: rgba(0, 0, 0, 0.12);
+  transition: transform var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+}
+
+.ui-shell__link:hover {
+  transform: translateY(-1px);
+  background: rgba(0, 0, 0, 0.16);
+}
+
+.ui-shell__link.is-active {
+  border-color: rgba(52, 211, 153, 0.35);
+  background: rgba(52, 211, 153, 0.12);
+}
+
+.ui-shell__main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  overflow: auto;
+}
+
+.ui-shell__content {
+  padding: 18px;
+}

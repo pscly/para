@@ -1,0 +1,326 @@
+.card {
+  background: linear-gradient(180deg, var(--card), rgba(255, 255, 255, 0.03));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  padding: 14px;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(10px);
+}
+
+.card h2 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.pill {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-pill);
+  padding: 6px 10px;
+  background: var(--card2);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+button {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 16%, var(--card2)),
+    color-mix(in srgb, var(--accent) 8%, var(--card))
+  );
+  color: var(--text);
+  border-radius: 12px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: background var(--dur-2) var(--ease-out), transform var(--dur-2) var(--ease-out);
+}
+
+button:hover {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent) 20%, var(--card2)),
+    color-mix(in srgb, var(--accent) 10%, var(--card))
+  );
+}
+
+button:active {
+  transform: translateY(1px);
+}
+
+.btn-warn {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--accent2) 22%, var(--card2)),
+    color-mix(in srgb, var(--accent2) 10%, var(--card))
+  );
+}
+
+input {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--card2);
+  color: var(--text);
+  outline: none;
+}
+
+input:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.ui-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ui-btn--sm {
+  padding: 8px 10px;
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.ui-btn--secondary {
+  background: linear-gradient(180deg, var(--card2), var(--card));
+}
+
+.ui-btn--ghost {
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border-color: var(--line);
+}
+
+.ui-btn--danger {
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--danger) 18%, var(--card2)),
+    color-mix(in srgb, var(--danger) 8%, var(--card))
+  );
+}
+
+.ui-btn--loading {
+  cursor: progress;
+}
+
+.ui-spinner {
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  border: 2px solid var(--muted);
+  border-top-color: transparent;
+  animation: ui-spin 900ms linear infinite;
+}
+
+@keyframes ui-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.ui-field {
+  display: grid;
+  gap: 6px;
+}
+
+.ui-field__label {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ui-field__hint {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.ui-field__error {
+  font-size: 12px;
+  color: var(--danger);
+}
+
+.ui-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.ui-toggle__input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.ui-toggle__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.ui-toggle__track {
+  width: 42px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--text) 8%, var(--card));
+  display: inline-flex;
+  align-items: center;
+  padding: 2px;
+}
+
+.ui-toggle__thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--card2) 70%, white);
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.ui-toggle__input:focus-visible + .ui-toggle__label .ui-toggle__track {
+  box-shadow: 0 0 0 3px var(--focus-ring);
+}
+
+.ui-toggle__input:checked + .ui-toggle__label .ui-toggle__track {
+  background: color-mix(in srgb, var(--accent) 20%, var(--card2));
+  border-color: color-mix(in srgb, var(--accent) 30%, var(--line));
+}
+
+.ui-toggle__input:checked + .ui-toggle__label .ui-toggle__thumb {
+  transform: translateX(18px);
+}
+
+.ui-modal__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.52);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+}
+
+.ui-modal__dialog {
+  width: min(560px, 100%);
+  background: linear-gradient(180deg, var(--card2), var(--card));
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-card);
+  padding: 16px;
+}
+
+.ui-modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+}
+
+.ui-modal__title {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+}
+
+.ui-modal__close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid var(--line);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.ui-modal__close:hover {
+  background: color-mix(in srgb, var(--text) 10%, transparent);
+}
+
+.ui-sidebar {
+  width: 260px;
+  min-width: 260px;
+  height: 100%;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  background: linear-gradient(180deg, var(--card2), var(--card));
+}
+
+.ui-toasts {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  display: grid;
+  gap: 10px;
+  z-index: 100;
+}
+
+.ui-toast {
+  width: min(360px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: linear-gradient(180deg, var(--card2), var(--card));
+  box-shadow: var(--shadow-card);
+  padding: 12px;
+}
+
+.ui-toast--error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--line));
+}
+
+.ui-toast__row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.ui-toast__title {
+  font-weight: 700;
+  font-size: 13px;
+  margin: 0 0 2px;
+}
+
+.ui-toast__message {
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text);
+  opacity: 0.88;
+}
+
+.ui-toast__close {
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--text) 6%, transparent);
+  border: 1px solid var(--line);
+}
+
+
+.split {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 1fr 1fr;
+}
+
+.danger {
+  color: var(--danger);
+  font-size: 12px;
+  min-height: 16px;
+}
