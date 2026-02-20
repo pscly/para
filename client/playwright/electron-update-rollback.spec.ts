@@ -9,6 +9,13 @@ import electronPath from 'electron';
 
 import { TEST_IDS } from '../src/renderer/app/testIds';
 
+async function gotoUpdatesPage(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.location.hash = '#/updates';
+  });
+  await expect(page.getByTestId(TEST_IDS.updateCard)).toBeVisible({ timeout: 15_000 });
+}
+
 async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   const timeoutMs = 5_000;
   const pollIntervalMs = 100;
@@ -51,7 +58,7 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
 }
 
 function getEvidencePath(): string {
-  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-7-2-update-rollback.txt');
+  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-20-update-rollback.txt');
 }
 
 async function mkTempUserDataDir(): Promise<string> {
@@ -83,7 +90,7 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
   await fs.promises.mkdir(path.dirname(evidenceFile), { recursive: true });
 
   const lines: string[] = [];
-  lines.push(`[task-7-2] updates rollback e2e (fake updater)`);
+  lines.push(`[task-20] updates rollback e2e (fake updater)`);
   lines.push(`platform=${process.platform}`);
   lines.push(`userDataDir=${userDataDir}`);
   lines.push(`note=fake updater only; production uses electron-updater`);
@@ -93,6 +100,7 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
 
   const app1 = await launchApp(mainEntry, {
     PARA_USER_DATA_DIR: userDataDir,
+    PARA_APP_VERSION: '0.0.1',
     PARA_UPDATES_ENABLE: '1',
     PARA_UPDATES_FAKE: '1',
     PARA_UPDATES_DISABLE_AUTO_CHECK: '1',
@@ -102,7 +110,8 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
   try {
     const page = await getDebugPanelPage(app1);
 
-    await expect(page.getByTestId(TEST_IDS.updateCard)).toBeVisible();
+    await gotoUpdatesPage(page);
+
     await page.getByTestId(TEST_IDS.updateCheck).click();
 
     await expect(page.getByTestId(TEST_IDS.updateStatus)).toContainText('发现更新');
@@ -124,6 +133,7 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
 
   const app2 = await launchApp(mainEntry, {
     PARA_USER_DATA_DIR: userDataDir,
+    PARA_APP_VERSION: '0.0.1',
     PARA_UPDATES_ENABLE: '1',
     PARA_UPDATES_FAKE: '1',
     PARA_UPDATES_DISABLE_AUTO_CHECK: '1',
@@ -132,6 +142,8 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
 
   try {
     const page = await getDebugPanelPage(app2);
+
+    await gotoUpdatesPage(page);
 
     await page.getByTestId(TEST_IDS.updateCheck).click();
     await expect(page.getByTestId(TEST_IDS.updateStatus)).toContainText('已是最新');
@@ -146,6 +158,7 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
 
   const app3 = await launchApp(mainEntry, {
     PARA_USER_DATA_DIR: userDataDir,
+    PARA_APP_VERSION: '0.0.1',
     PARA_UPDATES_ENABLE: '1',
     PARA_UPDATES_FAKE: '1',
     PARA_UPDATES_DISABLE_AUTO_CHECK: '1',
@@ -155,6 +168,8 @@ test('Electron updates (fake): publish -> update -> rollback (controlled)', asyn
 
   try {
     const page = await getDebugPanelPage(app3);
+
+    await gotoUpdatesPage(page);
 
     await page.getByTestId(TEST_IDS.updateCheck).click();
     await expect(page.getByTestId(TEST_IDS.updateStatus)).toContainText('发现更新');

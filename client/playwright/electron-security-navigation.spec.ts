@@ -25,6 +25,31 @@ async function waitForWindows(app: ElectronApplication, minCount: number): Promi
   return pages;
 }
 
+async function waitForStableWindowCount(app: ElectronApplication): Promise<number> {
+  const timeoutMs = 10_000;
+  const pollIntervalMs = 100;
+  const stableForMs = 750;
+  const deadline = Date.now() + timeoutMs;
+
+  let lastCount = app.windows().length;
+  let lastChangeAt = Date.now();
+
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, pollIntervalMs));
+    const currentCount = app.windows().length;
+    if (currentCount !== lastCount) {
+      lastCount = currentCount;
+      lastChangeAt = Date.now();
+    }
+
+    if (Date.now() - lastChangeAt >= stableForMs) {
+      return lastCount;
+    }
+  }
+
+  return app.windows().length;
+}
+
 async function getWindowInnerWidth(page: Page): Promise<number> {
   if (page.isClosed()) return 0;
 
@@ -59,7 +84,7 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
 }
 
 function getEvidencePath(): string {
-  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-6-1-navigation-deny.txt');
+  return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', 'task-18-security.txt');
 }
 
 test('Electron security: deny window.open to javascript/file/non-allowlist https', async () => {
@@ -78,7 +103,9 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
   });
 
   let newWindowCount = 0;
+  let trackNewWindows = false;
   app.on('window', () => {
+    if (!trackNewWindows) return;
     newWindowCount += 1;
   });
 
@@ -138,6 +165,10 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
 
     const page = await getDebugPanelPage(app);
 
+    const initialWindowCount = await waitForStableWindowCount(app);
+    trackNewWindows = true;
+    newWindowCount = 0;
+
     const initialHref = await page.evaluate(() => window.location.href);
 
     const dialogs: string[] = [];
@@ -180,9 +211,11 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
     ];
 
     const evidenceLines: string[] = [];
-    const initialWindowCount = app.windows().length;
 
     for (const tc of cases) {
+      newWindowCount = 0;
+      const baselineWindowCount = app.windows().length;
+
       const beforeExternalCalls = await app.evaluate(() => {
         const g = globalThis as unknown as Record<string, unknown>;
         const calls = g.__e2eOpenExternalCalls;
@@ -207,7 +240,7 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
 
       expect(opened).toBe(false);
       expect(newWindowCount).toBe(0);
-      expect(currentWindowCount).toBe(initialWindowCount);
+      expect(currentWindowCount).toBe(baselineWindowCount);
       expect(deltaExternalCalls).toBe(0);
       expect(dialogs.length).toBe(0);
 
@@ -224,6 +257,9 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
     }
 
     for (const tc of navigateCases) {
+      newWindowCount = 0;
+      const baselineWindowCount = app.windows().length;
+
       const beforeExternalCalls = await app.evaluate(() => {
         const g = globalThis as unknown as Record<string, unknown>;
         const calls = g.__e2eOpenExternalCalls;
@@ -249,7 +285,7 @@ test('Electron security: deny window.open to javascript/file/non-allowlist https
 
       expect(hrefSame).toBe(true);
       expect(newWindowCount).toBe(0);
-      expect(currentWindowCount).toBe(initialWindowCount);
+      expect(currentWindowCount).toBe(baselineWindowCount);
       expect(deltaExternalCalls).toBe(0);
       expect(dialogs.length).toBe(0);
 

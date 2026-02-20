@@ -1,0 +1,15 @@
+[task-20] updates rollback e2e (fake updater)
+platform=linux
+userDataDir=/root/1codes/1para/client/playwright-results/userData-updates-W34LDV
+note=fake updater only; production uses electron-updater
+---
+step=publish: remote=0.0.2
+result=updated current=0.0.2
+---
+step=rollback candidate (downgrade blocked by default): remote=0.0.1 allowDowngrade=0
+result=blocked (no allowDowngrade)
+---
+step=rollback (controlled): remote=0.0.1 allowDowngrade=1
+result=rolled_back current=0.0.1
+---
+osTmpDir=/tmp

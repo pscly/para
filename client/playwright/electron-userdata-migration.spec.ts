@@ -112,7 +112,13 @@ test('Task 14: migrate userData dir -> write config -> relaunch uses new userDat
 
       try {
         const page = await getDebugPanelPage(app);
+        await page.evaluate(() => { window.location.hash = '#/settings'; });
         await expect(page.getByTestId(TEST_IDS.userDataCard)).toBeVisible();
+
+        const task10EvidencePath = getEvidencePath('task-10-userdata-migration.png');
+        await fs.promises.mkdir(path.dirname(task10EvidencePath), { recursive: true });
+        await page.screenshot({ path: task10EvidencePath, fullPage: true });
+        expect(fs.existsSync(task10EvidencePath)).toBeTruthy();
 
         await page.getByTestId(TEST_IDS.userDataTargetInput).fill(targetUserDataDir);
         await page.getByTestId(TEST_IDS.userDataMigrate).click();
@@ -200,6 +206,7 @@ test('Task 14: migrate failure -> config not written -> no restart required', as
 
       try {
         const page = await getDebugPanelPage(app);
+        await page.evaluate(() => { window.location.hash = '#/settings'; });
         await expect(page.getByTestId(TEST_IDS.userDataCard)).toBeVisible();
 
         await page.getByTestId(TEST_IDS.userDataTargetInput).fill(targetUserDataDir);
