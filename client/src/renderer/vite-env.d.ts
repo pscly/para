@@ -59,6 +59,7 @@ export type DesktopApi = {
     chrome: string;
   };
   labsEnabled: boolean;
+  devModeEnabled: boolean;
   security: {
     getAppEncStatus: () => Promise<{
       desiredEnabled: boolean;

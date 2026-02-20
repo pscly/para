@@ -1,5 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from "react";
 
+import { getDesktopApi, getUnsubscribe } from "../services/desktopApi";
+
 type PetAppProps = {
   className?: string;
 };
@@ -49,29 +51,31 @@ export default function PetApp(props: PetAppProps) {
   const srId = useId();
 
   useEffect(() => {
-    const plugins = window.desktopApi?.plugins;
+    const plugins = getDesktopApi()?.plugins;
     if (!plugins?.onOutput) return;
 
-    const unsubscribe = plugins.onOutput((payload: PluginOutputPayload) => {
-      if (payload?.type !== "say" && payload?.type !== "suggestion") return;
-      const text = typeof payload.text === "string" ? payload.text : "";
-      if (!text.trim()) return;
+    const unsubscribe = getUnsubscribe(
+      plugins.onOutput((payload: PluginOutputPayload) => {
+        if (payload?.type !== "say" && payload?.type !== "suggestion") return;
+        const text = typeof payload.text === "string" ? payload.text : "";
+        if (!text.trim()) return;
 
-      setPluginBubble({
-        visible: true,
-        type: payload.type,
-        text,
-        key: Date.now(),
-      });
+        setPluginBubble({
+          visible: true,
+          type: payload.type,
+          text,
+          key: Date.now(),
+        });
 
-      if (bubbleTimerRef.current != null) {
-        window.clearTimeout(bubbleTimerRef.current);
-      }
-      bubbleTimerRef.current = window.setTimeout(() => {
-        setPluginBubble(null);
-        bubbleTimerRef.current = null;
-      }, 4200);
-    });
+        if (bubbleTimerRef.current != null) {
+          window.clearTimeout(bubbleTimerRef.current);
+        }
+        bubbleTimerRef.current = window.setTimeout(() => {
+          setPluginBubble(null);
+          bubbleTimerRef.current = null;
+        }, 4200);
+      }),
+    );
 
     return () => {
       if (bubbleTimerRef.current != null) {
@@ -88,7 +92,7 @@ export default function PetApp(props: PetAppProps) {
       return;
     }
 
-    const plugins = window.desktopApi?.plugins;
+    const plugins = getDesktopApi()?.plugins;
     if (!plugins?.getMenuItems) return;
 
     let cancelled = false;
@@ -198,7 +202,7 @@ export default function PetApp(props: PetAppProps) {
                     onClick={(e) => {
                       e.stopPropagation();
                       setMenuOpen(false);
-                      void window.desktopApi?.plugins?.clickMenuItem({
+                      void getDesktopApi()?.plugins?.clickMenuItem({
                         pluginId: item.pluginId,
                         id: item.id,
                       });
@@ -237,9 +241,9 @@ const styles: Record<string, ElectronCSS> = {
     width: 76,
     height: 76,
     borderRadius: 999,
-    border: "1px solid rgba(255, 255, 255, 0.28)",
-    background: "rgba(255, 255, 255, 0.10)",
-    boxShadow: "0 10px 30px rgba(0, 0, 0, 0.25)",
+    border: "1px solid var(--line)",
+    background: "var(--card2)",
+    boxShadow: "var(--shadow-card)",
     cursor: "pointer",
     padding: 0,
     display: "grid",
@@ -251,8 +255,8 @@ const styles: Record<string, ElectronCSS> = {
     width: 56,
     height: 56,
     borderRadius: 999,
-    background: "linear-gradient(135deg, rgba(255, 255, 255, 0.30), rgba(255, 255, 255, 0.06))",
-    border: "1px solid rgba(255, 255, 255, 0.22)",
+    background: "linear-gradient(135deg, var(--card2), var(--card))",
+    border: "1px solid var(--line)",
   },
   menu: {
     position: "absolute",
@@ -265,18 +269,18 @@ const styles: Record<string, ElectronCSS> = {
     width: 170,
     height: 170,
     borderRadius: 999,
-    border: "1px solid rgba(255, 255, 255, 0.22)",
-    background: "rgba(0, 0, 0, 0.10)",
-    boxShadow: "inset 0 0 0 1px rgba(0, 0, 0, 0.10)",
+    border: "1px solid var(--line)",
+    background: "var(--card)",
+    boxShadow: "inset 0 0 0 1px var(--line)",
   },
   menuItem: {
     position: "absolute",
     width: 70,
     height: 34,
     borderRadius: 999,
-    border: "1px solid rgba(255, 255, 255, 0.22)",
-    background: "rgba(255, 255, 255, 0.12)",
-    color: "rgba(255, 255, 255, 0.92)",
+    border: "1px solid var(--line)",
+    background: "var(--card2)",
+    color: "var(--text)",
     fontSize: 12,
     letterSpacing: 0.2,
     cursor: "pointer",
@@ -297,8 +301,8 @@ const styles: Record<string, ElectronCSS> = {
     width: 76,
     height: 34,
     padding: "0 10px",
-    background: "rgba(255, 255, 255, 0.10)",
-    boxShadow: "0 10px 24px rgba(0, 0, 0, 0.18)",
+    background: "var(--card)",
+    boxShadow: "var(--shadow-card)",
   },
   pluginMenuItemLabel: {
     width: "100%",
@@ -315,15 +319,15 @@ const styles: Record<string, ElectronCSS> = {
     maxWidth: 280,
     padding: "10px 12px",
     borderRadius: 14,
-    border: "1px solid rgba(255, 255, 255, 0.26)",
+    border: "1px solid var(--line)",
     background: "rgba(0, 0, 0, 0.52)",
-    color: "rgba(255, 255, 255, 0.94)",
+    color: "var(--text)",
     boxShadow: "0 18px 40px rgba(0, 0, 0, 0.30)",
     pointerEvents: "none",
     zIndex: 3,
   },
   pluginBubbleSuggestion: {
-    border: "1px solid rgba(255, 255, 255, 0.32)",
+    border: "1px solid var(--line)",
     background: "rgba(0, 0, 0, 0.48)",
   },
   pluginBubbleText: {

@@ -1,5 +1,6 @@
 import React from 'react';
 import { TEST_IDS } from './testIds';
+import { getDesktopApi, getUnsubscribe } from '../services/desktopApi';
 
 type SaveListItem = {
   id: string;
@@ -153,12 +154,6 @@ function bytesToImageUrl(bytes: Uint8Array): string {
   } catch {
   }
   return bytesToPngDataUrl(bytes);
-}
-
-function getUnsubscribe(ret: unknown): (() => void) | null {
-  if (typeof ret === 'function') return ret as () => void;
-  if (isRecord(ret) && typeof ret.unsubscribe === 'function') return ret.unsubscribe as () => void;
-  return null;
 }
 
 function formatRoomEventText(frame: Record<string, unknown>): SocialRoomEventItem | null {
@@ -351,12 +346,13 @@ export function App() {
   const activeClientRequestIdRef = React.useRef<string | null>(null);
   const activeRequestDoneRef = React.useRef<boolean>(false);
 
-  const versions = window.desktopApi?.versions;
-  const labsEnabled = window.desktopApi?.labsEnabled === true;
+  const versions = getDesktopApi()?.versions;
+  const labsEnabled = getDesktopApi()?.labsEnabled === true;
+  const devModeEnabled = getDesktopApi()?.devModeEnabled === true;
   const [appVersion, setAppVersion] = React.useState<string | null>(null);
 
   React.useEffect(() => {
-    const api = window.desktopApi;
+    const api = getDesktopApi();
     if (!api?.getAppVersion) return;
 
     void api
@@ -368,7 +364,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const api = window.desktopApi;
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) return;
     void plugins
@@ -378,7 +374,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const update = window.desktopApi?.update;
+    const update = getDesktopApi()?.update;
     if (!update) return;
 
     void update
@@ -402,7 +398,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const userData = window.desktopApi?.userData;
+    const userData = getDesktopApi()?.userData;
     if (!userData?.getInfo) return;
 
     void userData
@@ -414,7 +410,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.getConfig) return;
 
     void byok
@@ -431,7 +427,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const security = (window.desktopApi as any)?.security;
+    const security = getDesktopApi()?.security;
     if (!security?.getAppEncStatus) return;
 
     void security
@@ -483,7 +479,7 @@ export function App() {
   }, [galleryItems]);
 
   React.useEffect(() => {
-    const gallery = window.desktopApi?.gallery;
+    const gallery = getDesktopApi()?.gallery;
     if (!gallery) return;
 
     const completed = galleryItems.filter((it) => String(it.status) === 'completed');
@@ -528,7 +524,7 @@ export function App() {
   }, [galleryItems]);
 
   React.useEffect(() => {
-    const ws = window.desktopApi?.ws;
+    const ws = getDesktopApi()?.ws;
     if (!ws) return;
 
     const unsubscribes: Array<() => void> = [];
@@ -613,7 +609,7 @@ export function App() {
   }, []);
 
   React.useEffect(() => {
-    const api = window.desktopApi;
+    const api = getDesktopApi();
     const assistant = api?.assistant;
     if (!assistant?.onSuggestion) return;
 
@@ -714,7 +710,7 @@ export function App() {
   }
 
   async function refreshAppEncStatus(opts?: { silent?: boolean }) {
-    const security = (window.desktopApi as any)?.security;
+    const security = getDesktopApi()?.security;
     if (!security?.getAppEncStatus) {
       if (!opts?.silent) setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
       return;
@@ -735,7 +731,7 @@ export function App() {
     if (appEncBusy) return;
     setAppEncUiError('');
 
-    const security = (window.desktopApi as any)?.security;
+    const security = getDesktopApi()?.security;
     if (!security?.setAppEncEnabled) {
       setAppEncUiError('APPENC_STATUS_UNAVAILABLE');
       return;
@@ -880,12 +876,6 @@ export function App() {
     return `${hh}:${mm}:${ss}`;
   }
 
-  function getDesktopApiExt(): DesktopApiExt | null {
-    const api = window.desktopApi;
-    if (!api) return null;
-    return api;
-  }
-
   function isMdFile(file: File): boolean {
     const name = file.name.toLowerCase();
     if (name.endsWith('.md')) return true;
@@ -916,7 +906,7 @@ export function App() {
   }
 
   async function refreshGalleryList(opts?: { silent?: boolean }) {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const gallery = api?.gallery;
     if (!gallery) {
       if (!opts?.silent) setGalleryUiError('相册接口不可用');
@@ -953,7 +943,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const gallery = api?.gallery;
     if (!gallery) {
       setGalleryUiError('相册接口不可用');
@@ -983,7 +973,7 @@ export function App() {
   }
 
   async function refreshTimelineList(opts?: { silent?: boolean }) {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const timeline = api?.timeline;
     if (!timeline) {
       if (!opts?.silent) setTimelineUiError('时间轴接口不可用');
@@ -1014,7 +1004,7 @@ export function App() {
     if (timelineBusy) return;
     setTimelineUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const timeline = api?.timeline;
     if (!timeline) {
       setTimelineUiError('时间轴接口不可用');
@@ -1037,7 +1027,7 @@ export function App() {
     setSocialUiError('');
     setSocialUiInfo('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const social = api?.social;
     if (!social) {
       setSocialUiError('社交接口不可用');
@@ -1072,7 +1062,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const social = api?.social;
     if (!social) {
       setSocialUiError('社交接口不可用');
@@ -1091,7 +1081,7 @@ export function App() {
   }
 
   async function refreshUgcApprovedAssets(opts?: { silent?: boolean }) {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const ugc = api?.ugc;
     if (!ugc) {
       if (!opts?.silent) setUgcUiError('UGC 接口不可用');
@@ -1132,7 +1122,7 @@ export function App() {
   }
 
   async function refreshPluginsStatus(opts?: { silent?: boolean }) {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) {
       if (!opts?.silent) setPluginsUiError('Plugins 接口不可用');
@@ -1149,7 +1139,7 @@ export function App() {
   }
 
   async function refreshPluginsApproved(opts?: { silent?: boolean }) {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) {
       if (!opts?.silent) setPluginsUiError('Plugins 接口不可用');
@@ -1187,7 +1177,7 @@ export function App() {
     if (pluginsBusy) return;
     setPluginsUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) {
       setPluginsUiError('Plugins 接口不可用');
@@ -1215,7 +1205,7 @@ export function App() {
     if (pluginsBusy) return;
     setPluginsUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) {
       setPluginsUiError('Plugins 接口不可用');
@@ -1242,7 +1232,7 @@ export function App() {
     if (pluginsBusy) return;
     setPluginsUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const plugins = api?.plugins;
     if (!plugins) {
       setPluginsUiError('Plugins 接口不可用');
@@ -1276,7 +1266,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const social = api?.social;
     if (!social) {
       setSocialUiError('社交接口不可用');
@@ -1306,7 +1296,7 @@ export function App() {
       galleryPollTimerRef.current = null;
     }
 
-    const api = window.desktopApi;
+    const api = getDesktopApi();
     const gallery = api?.gallery;
     if (!gallery) return;
     void gallery
@@ -1330,7 +1320,7 @@ export function App() {
 
     if (galleryPollTimerRef.current) return;
     galleryPollTimerRef.current = setInterval(() => {
-      const api = window.desktopApi;
+      const api = getDesktopApi();
       const gallery = api?.gallery;
       if (!gallery) return;
 
@@ -1360,7 +1350,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const knowledge = api?.knowledge;
     if (!knowledge) {
       setFeedPhase('error');
@@ -1500,7 +1490,7 @@ export function App() {
     }
     if (visionSending) return;
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const vision = api?.vision;
     if (!vision) {
       setVisionError('截图理解接口不可用');
@@ -1532,7 +1522,7 @@ export function App() {
   async function onToggleAssistant() {
     setAssistantUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const assistant = api?.assistant;
     if (!assistant) {
       setAssistantUiError('系统助手接口不可用');
@@ -1556,7 +1546,7 @@ export function App() {
   async function onToggleAssistantIdle() {
     setAssistantUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const assistant = api?.assistant;
     if (!assistant) {
       setAssistantUiError('系统助手接口不可用');
@@ -1575,7 +1565,7 @@ export function App() {
   async function onAssistantCopyEnglish() {
     setAssistantUiError('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const assistant = api?.assistant;
     const writeClipboardText = assistant?.writeClipboardText;
     if (!assistant || typeof writeClipboardText !== 'function') {
@@ -1602,7 +1592,7 @@ export function App() {
       return;
     }
 
-    const auth = window.desktopApi?.auth;
+    const auth = getDesktopApi()?.auth;
     if (!auth) {
       setLoginError('登录失败');
       setLoggedInEmail(null);
@@ -1636,7 +1626,7 @@ export function App() {
       return;
     }
 
-    const auth = window.desktopApi?.auth;
+    const auth = getDesktopApi()?.auth;
     if (!auth?.register) {
       setRegisterError('注册失败');
       return;
@@ -1658,7 +1648,7 @@ export function App() {
   }
 
   async function refreshByokConfig(opts?: { silent?: boolean }) {
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.getConfig) {
       if (!opts?.silent) setByokUiError('BYOK 接口不可用');
       return;
@@ -1680,7 +1670,7 @@ export function App() {
   async function onByokSaveConfig() {
     if (byokBusy) return;
     setByokUiError('');
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.setConfig) {
       setByokUiError('BYOK 保存接口不可用');
       return;
@@ -1704,7 +1694,7 @@ export function App() {
   async function onByokToggle() {
     if (byokBusy) return;
     setByokUiError('');
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.setConfig) {
       setByokUiError('BYOK 开关接口不可用');
       return;
@@ -1737,7 +1727,7 @@ export function App() {
       return;
     }
 
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.updateApiKey) {
       setByokUiError('BYOK 更新 Key 接口不可用');
       return;
@@ -1759,7 +1749,7 @@ export function App() {
   async function onByokClearApiKey() {
     if (byokBusy) return;
     setByokUiError('');
-    const byok = window.desktopApi?.byok;
+    const byok = getDesktopApi()?.byok;
     if (!byok?.clearApiKey) {
       setByokUiError('BYOK 清除 Key 接口不可用');
       return;
@@ -1778,7 +1768,7 @@ export function App() {
   }
 
   async function onConnect() {
-    const ws = window.desktopApi?.ws;
+    const ws = getDesktopApi()?.ws;
     if (!ws) {
       setWsStatusLabel('未连接');
       setChatMeta('连接不可用');
@@ -1796,7 +1786,7 @@ export function App() {
     setSaveUiError('');
     setSaveUiInfo('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const savesApi = api?.saves;
     if (!savesApi) {
       setSaveUiError('存档接口不可用');
@@ -1822,7 +1812,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const savesApi = api?.saves;
     if (!savesApi) {
       setSaveUiError('存档接口不可用');
@@ -1847,7 +1837,7 @@ export function App() {
     setSaveUiError('');
     setSaveUiInfo('');
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const personasApi = api?.personas;
     if (!personasApi) {
       setSaveUiError('Persona 接口不可用');
@@ -1873,7 +1863,7 @@ export function App() {
       return;
     }
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const savesApi = api?.saves;
     if (!savesApi) {
       setSaveUiError('存档接口不可用');
@@ -1895,7 +1885,7 @@ export function App() {
     const text = chatInput.trim();
     if (!text) return;
 
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const ws = api?.ws;
     const byok = api?.byok;
     const byokConfigured =
@@ -1946,7 +1936,7 @@ export function App() {
   }
 
   async function onChatStop() {
-    const api = getDesktopApiExt();
+    const api = getDesktopApi();
     const byok = api?.byok;
     const ws = api?.ws;
 
@@ -1971,7 +1961,7 @@ export function App() {
   }
 
   async function onUpdateCheck() {
-    const update = window.desktopApi?.update;
+    const update = getDesktopApi()?.update;
     if (!update) {
       setUpdateUiError('更新接口不可用');
       return;
@@ -1990,7 +1980,7 @@ export function App() {
   }
 
   async function onUpdateDownload() {
-    const update = window.desktopApi?.update;
+    const update = getDesktopApi()?.update;
     if (!update) {
       setUpdateUiError('更新接口不可用');
       return;
@@ -2009,7 +1999,7 @@ export function App() {
   }
 
   async function onUpdateInstall() {
-    const update = window.desktopApi?.update;
+    const update = getDesktopApi()?.update;
     if (!update) {
       setUpdateUiError('更新接口不可用');
       return;
@@ -2028,7 +2018,7 @@ export function App() {
   }
 
   async function refreshUserDataInfo(opts?: { silent?: boolean }) {
-    const userData = window.desktopApi?.userData;
+    const userData = getDesktopApi()?.userData;
     if (!userData?.getInfo) {
       if (!opts?.silent) setUserDataUiError('数据目录接口不可用');
       return;
@@ -2048,7 +2038,7 @@ export function App() {
     setUserDataUiError('');
     setUserDataUiInfo('');
 
-    const userData = window.desktopApi?.userData;
+    const userData = getDesktopApi()?.userData;
     if (!userData?.pickDir) {
       setUserDataUiError('选择目录不可用');
       return;
@@ -2077,7 +2067,7 @@ export function App() {
       return;
     }
 
-    const userData = window.desktopApi?.userData;
+    const userData = getDesktopApi()?.userData;
     if (!userData?.migrate) {
       setUserDataUiError('迁移接口不可用');
       return;
@@ -2098,7 +2088,7 @@ export function App() {
   }
 
   async function onUserDataRelaunch() {
-    const appApi = window.desktopApi?.app;
+    const appApi = getDesktopApi()?.app;
     if (!appApi?.relaunch) {
       setUserDataUiError('重启接口不可用');
       return;
@@ -3003,46 +2993,53 @@ export function App() {
           </div>
         </section>
 
-        <section className="card">
-          <h2>注册</h2>
-          <form onSubmit={onRegisterSubmit} className="chat">
-            <div className="split">
-              <input
-                data-testid={TEST_IDS.registerEmail}
-                value={registerEmail}
-                onChange={(e) => setRegisterEmail(e.target.value)}
-                placeholder="邮箱"
-                inputMode="email"
-              />
-              <input
-                data-testid={TEST_IDS.registerPassword}
-                value={registerPassword}
-                onChange={(e) => setRegisterPassword(e.target.value)}
-                placeholder="密码"
-                type="password"
-              />
-            </div>
-            <div style={{ height: 10 }} />
-            <input
-              data-testid={TEST_IDS.registerInviteCode}
-              value={registerInviteCode}
-              onChange={(e) => setRegisterInviteCode(e.target.value)}
-              placeholder="邀请码（邀请制时必填）"
-              autoComplete="off"
-            />
-            <div className="row">
-              <button data-testid={TEST_IDS.registerSubmit} type="submit" disabled={isRegistering} className="btn-ok">
-                {isRegistering ? '注册中…' : '注册'}
-              </button>
-              <span className="pill">注册成功后将自动登录</span>
-            </div>
-            {registerError ? (
-              <div className="danger" data-testid={TEST_IDS.registerError}>
-                {registerError}
+        {devModeEnabled ? (
+          <section className="card">
+            <h2>注册</h2>
+            <form onSubmit={onRegisterSubmit} className="chat">
+              <div className="split">
+                <input
+                  data-testid={TEST_IDS.registerEmail}
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  placeholder="邮箱"
+                  inputMode="email"
+                />
+                <input
+                  data-testid={TEST_IDS.registerPassword}
+                  value={registerPassword}
+                  onChange={(e) => setRegisterPassword(e.target.value)}
+                  placeholder="密码"
+                  type="password"
+                />
               </div>
-            ) : null}
-          </form>
-        </section>
+              <div style={{ height: 10 }} />
+              <input
+                data-testid={TEST_IDS.registerInviteCode}
+                value={registerInviteCode}
+                onChange={(e) => setRegisterInviteCode(e.target.value)}
+                placeholder="邀请码（邀请制时必填）"
+                autoComplete="off"
+              />
+              <div className="row">
+                <button
+                  data-testid={TEST_IDS.registerSubmit}
+                  type="submit"
+                  disabled={isRegistering}
+                  className="btn-ok"
+                >
+                  {isRegistering ? '注册中…' : '注册'}
+                </button>
+                <span className="pill">注册成功后将自动登录</span>
+              </div>
+              {registerError ? (
+                <div className="danger" data-testid={TEST_IDS.registerError}>
+                  {registerError}
+                </div>
+              ) : null}
+            </form>
+          </section>
+        ) : null}
 
         <section className="card">
           <h2>登录</h2>

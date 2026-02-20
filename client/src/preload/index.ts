@@ -227,6 +227,7 @@ contextBridge.exposeInMainWorld('desktopApi', {
     chrome: process.versions.chrome
   },
   labsEnabled: process.env.PARA_LABS === '1',
+  devModeEnabled: process.env.PARA_DEV_MODE === '1',
   security: {
     getAppEncStatus: async (): Promise<AppEncStatus> => {
       return ipcRenderer.invoke('security:appEnc:getStatus') as Promise<AppEncStatus>;
