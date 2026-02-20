@@ -1,0 +1,17 @@
+
+> ai-girlfriend-client@0.1.10 test
+> vitest run
+
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /root/1codes/1para/client
+
+ ✓ tests/app.smoke.test.tsx (1 test) 128ms
+ ✓ tests/ui-primitives.test.tsx (3 tests) 135ms
+ ✓ tests/plugins-consent.test.tsx (1 test) 172ms
+
+ Test Files  3 passed (3)
+      Tests  5 passed (5)
+   Start at  21:56:30
+   Duration  1.31s (transform 339ms, setup 230ms, collect 802ms, tests 435ms, environment 1.45s, prepare 267ms)
+
