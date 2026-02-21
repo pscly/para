@@ -667,9 +667,17 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
         try {
           const debugPage = await getDebugPanelPage(electronApp);
           await debugPage.bringToFront();
+          try {
+            await debugPage.waitForLoadState('domcontentloaded', { timeout: 5_000 });
+          } catch {
+          }
+          await debugPage.evaluate(() => {
+            window.location.hash = '#/plugins';
+          });
+
           const pluginsCard = debugPage.getByTestId(TEST_IDS.pluginsCard);
-          await pluginsCard.scrollIntoViewIfNeeded();
           await expect(pluginsCard).toBeVisible({ timeout: 15_000 });
+          await pluginsCard.scrollIntoViewIfNeeded();
 
           const toggle = debugPage.getByTestId(TEST_IDS.pluginsToggle);
           await expect(toggle).toBeVisible();
