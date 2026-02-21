@@ -1,13 +1,13 @@
 task-20 ugc approve evidence
-asset_id=816567b6-a587-4015-8271-920d4f877d8a
+asset_id=6d857de0-de93-46c2-90b5-0c0fe50737d4
 upload_status=201
-upload_body={'id': '816567b6-a587-4015-8271-920d4f877d8a', 'asset_type': 'test_asset', 'status': 'pending', 'manifest_json': '{"description":"task-20 ugc manifest","name":"hello-ugc","version":"0.0.1"}', 'created_at': '2026-02-21T10:14:53.651563', 'updated_at': '2026-02-21T10:14:53.651563'}
+upload_body={'id': '6d857de0-de93-46c2-90b5-0c0fe50737d4', 'asset_type': 'test_asset', 'status': 'pending', 'manifest_json': '{"description":"task-20 ugc manifest","name":"hello-ugc","version":"0.0.1"}', 'created_at': '2026-02-21T12:30:24.412066', 'updated_at': '2026-02-21T12:30:24.412066'}
 download_self_pending_status=200
 download_other_pending_status=403
 approve_status=200
-approve_body={'asset_id': '816567b6-a587-4015-8271-920d4f877d8a', 'status': 'approved'}
+approve_body={'asset_id': '6d857de0-de93-46c2-90b5-0c0fe50737d4', 'status': 'approved'}
 download_other_approved_status=200
 list_status=200
-list_body=[{'id': '816567b6-a587-4015-8271-920d4f877d8a', 'asset_type': 'test_asset', 'status': 'approved', 'manifest_json': '{"description":"task-20 ugc manifest","name":"hello-ugc","version":"0.0.1"}', 'created_at': '2026-02-21T10:14:53.651563', 'updated_at': '2026-02-21T10:14:53.694280'}]
+list_body=[{'id': '6d857de0-de93-46c2-90b5-0c0fe50737d4', 'asset_type': 'test_asset', 'status': 'approved', 'manifest_json': '{"description":"task-20 ugc manifest","name":"hello-ugc","version":"0.0.1"}', 'created_at': '2026-02-21T12:30:24.412066', 'updated_at': '2026-02-21T12:30:24.454492'}]
 assert_client_list_contains_asset=True
 assert_audit_log_written=True

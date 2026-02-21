@@ -1,7 +1,7 @@
 {
   "task": 45,
-  "save_id": "42aad6cd-70c4-43de-b0df-0cf5fd25581c",
-  "material_id": "8ba49eca-92eb-4aac-8726-d7e8c0e14dd4",
+  "save_id": "7612cdc0-b0ef-418d-ad6d-f6fc793cf479",
+  "material_id": "17192a4f-a631-4a32-98c1-c6fddaf30d10",
   "http": {
     "upload_status": 201,
     "status_before_status": 200,
@@ -17,8 +17,8 @@
     "answer": "# Notes\n\nThis line is important: PARA_KNOWLEDGE_MAGIC_SENTENCE.\n\nMore text.",
     "citations": [
       {
-        "chunk_id": "b6378ace-8ec7-4417-9614-3b415bacd854",
-        "material_id": "8ba49eca-92eb-4aac-8726-d7e8c0e14dd4",
+        "chunk_id": "9edbfc11-b611-48b3-8d14-02fcc03e3672",
+        "material_id": "17192a4f-a631-4a32-98c1-c6fddaf30d10",
         "chunk_index": 0,
         "distance": 0.6437214011719172,
         "score": 0.6083756038505274,
@@ -28,23 +28,23 @@
   },
   "reindex": {
     "material": {
-      "id": "8ba49eca-92eb-4aac-8726-d7e8c0e14dd4",
-      "save_id": "42aad6cd-70c4-43de-b0df-0cf5fd25581c",
+      "id": "17192a4f-a631-4a32-98c1-c6fddaf30d10",
+      "save_id": "7612cdc0-b0ef-418d-ad6d-f6fc793cf479",
       "filename": "note.md",
       "content_type": "text/markdown",
       "status": "indexed",
       "error": null,
-      "created_at": "2026-02-21T10:14:42.997914",
-      "updated_at": "2026-02-21T10:14:43.078311"
+      "created_at": "2026-02-21T12:30:14.987118",
+      "updated_at": "2026-02-21T12:30:15.068144"
     },
-    "task_id": "91a33553-c331-4025-9174-aaeae69242bc"
+    "task_id": "7dd42703-08d9-4fa6-9c5a-c2d7d125c2e8"
   },
   "query_after_reindex": {
     "answer": "# Notes\n\nThis line is important: PARA_KNOWLEDGE_MAGIC_SENTENCE.\n\nMore text.",
     "citations": [
       {
-        "chunk_id": "33731e9e-1dd2-4ce7-8f7e-a076eb22170f",
-        "material_id": "8ba49eca-92eb-4aac-8726-d7e8c0e14dd4",
+        "chunk_id": "a76294c6-aae7-47ad-ba52-04c852ec5f45",
+        "material_id": "17192a4f-a631-4a32-98c1-c6fddaf30d10",
         "chunk_index": 0,
         "distance": 0.6437214011719172,
         "score": 0.6083756038505274,
@@ -54,7 +54,7 @@
   },
   "delete": {
     "ok": true,
-    "material_id": "8ba49eca-92eb-4aac-8726-d7e8c0e14dd4"
+    "material_id": "17192a4f-a631-4a32-98c1-c6fddaf30d10"
   },
   "query_after_delete": {
     "answer": "",

@@ -1,0 +1,54 @@
+Timestamp: 2026-02-21T19:22:06
+Scan scope: whitelist only (no full-line output)
+Files scanned:
+  - .ai_session.md
+  - .github/workflows/ci.yml
+  - scripts/ci.sh
+  - .sisyphus/evidence/task-1-ci-client-typecheck.txt
+  - .sisyphus/evidence/task-2-playwright-smoke.txt
+  - .sisyphus/evidence/task-1-branch-create.txt
+Patterns: OPENAI_API_KEY | DATABASE_URL | psycopg:// | PASSWORD | sk-
+Note: "sk-" broad scan performed; only \bsk- and \bsk-[A-Za-z0-9]{20,} are reported to avoid "task-" noise.
+
+Hits (path:line keyword):
+.ai_session.md:118 PASSWORD
+.ai_session.md:208 DATABASE_URL
+.ai_session.md:236 PASSWORD
+.ai_session.md:318 OPENAI_API_KEY
+.ai_session.md:400 sk-
+.ai_session.md:502 sk-
+.ai_session.md:540 DATABASE_URL
+.ai_session.md:760 DATABASE_URL
+.ai_session.md:761 DATABASE_URL
+.ai_session.md:1728 PASSWORD
+.ai_session.md:1772 PASSWORD
+.ai_session.md:1904 DATABASE_URL
+.ai_session.md:1943 OPENAI_API_KEY
+.ai_session.md:1943 sk-
+.ai_session.md:1992 OPENAI_API_KEY
+.ai_session.md:2015 PASSWORD
+.github/workflows/ci.yml:112 DATABASE_URL
+.github/workflows/ci.yml:112 psycopg://
+
+Classification (same order as Hits):
+Hit 1: safe placeholder/reference only
+Hit 2: safe placeholder/reference only
+Hit 3: safe placeholder/reference only
+Hit 4: safe placeholder/reference only
+Hit 5: safe placeholder/reference only
+Hit 6: safe placeholder/reference only
+Hit 7: safe placeholder/reference only
+Hit 8: safe placeholder/reference only
+Hit 9: safe placeholder/reference only
+Hit 10: safe placeholder/reference only
+Hit 11: safe placeholder/reference only
+Hit 12: safe placeholder/reference only
+Hit 13: safe placeholder/reference only
+Hit 14: safe placeholder/reference only
+Hit 15: safe placeholder/reference only
+Hit 16: safe placeholder/reference only
+Hit 17: safe placeholder/reference only
+Hit 18: safe placeholder/reference only
+
+Broad sk- occurrences (unreported): 87
+Broad sk- filtered as likely noise: 84

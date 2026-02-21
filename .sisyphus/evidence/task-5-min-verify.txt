@@ -1,0 +1,123 @@
+# Task 5 - Minimal Verification Rerun
+# Notes:
+# - Output sanitized to ASCII (ANSI color codes stripped, Unicode glyphs replaced) to keep this file plain-text.
+# - Branch check: branch is NOT main (branch = client-ui-refactor-split-pr)
+# - Playwright browser install prerequisite: NOT NEEDED (e2e exited 0)
+
+[2026-02-21T19:39:37+08:00] CMD: npm -C client run lint
+
+> ai-girlfriend-client@0.1.10 lint
+> tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit
+
+[2026-02-21T19:39:37+08:00] EXIT_CODE: 0
+
+---
+
+[2026-02-21T19:39:52+08:00] CMD: npm -C client test
+
+> ai-girlfriend-client@0.1.10 test
+> vitest run
+
+The CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.
+
+RUN v2.1.9 /root/1codes/1para/client
+
+PASS tests/app.smoke.test.tsx (1 test) 171ms
+PASS tests/plugins-consent.test.tsx (1 test) 226ms
+PASS tests/ui-primitives.test.tsx (3 tests) 176ms
+
+Test Files 3 passed (3)
+Tests 5 passed (5)
+Start at 19:39:53
+Duration 1.67s (transform 310ms, setup 220ms, collect 921ms, tests 572ms, environment 1.89s, prepare 484ms)
+
+[2026-02-21T19:39:52+08:00] EXIT_CODE: 0
+
+---
+
+[2026-02-21T19:40:03+08:00] CMD: npm -C client run build
+
+> ai-girlfriend-client@0.1.10 build
+> npm run build:electron && npm run build:renderer
+
+> ai-girlfriend-client@0.1.10 build:electron
+> tsc -p tsconfig.electron.json
+
+> ai-girlfriend-client@0.1.10 build:renderer
+> vite build --config vite.config.ts
+
+vite v6.4.1 building for production...
+transforming...
+60 modules transformed.
+rendering chunks...
+computing gzip size...
+../../dist/renderer/index.html 0.41 kB | gzip: 0.30 kB
+../../dist/renderer/assets/index-B7JndJQZ.css 10.27 kB | gzip: 2.88 kB
+../../dist/renderer/assets/index-rFsthm_A.js 293.30 kB | gzip: 88.65 kB
+built in 1.79s
+
+[2026-02-21T19:40:03+08:00] EXIT_CODE: 0
+
+---
+
+[2026-02-21T19:40:19+08:00] CMD: npm -C client run e2e -- electron-smoke.spec.ts
+
+> ai-girlfriend-client@0.1.10 e2e
+> node scripts/run-e2e.mjs electron-smoke.spec.ts
+
+> ai-girlfriend-client@0.1.10 build
+> npm run build:electron && npm run build:renderer
+
+> ai-girlfriend-client@0.1.10 build:electron
+> tsc -p tsconfig.electron.json
+
+> ai-girlfriend-client@0.1.10 build:renderer
+> vite build --config vite.config.ts
+
+vite v6.4.1 building for production...
+transforming...
+60 modules transformed.
+rendering chunks...
+computing gzip size...
+../../dist/renderer/index.html 0.41 kB | gzip: 0.30 kB
+../../dist/renderer/assets/index-B7JndJQZ.css 10.27 kB | gzip: 2.88 kB
+../../dist/renderer/assets/index-rFsthm_A.js 293.30 kB | gzip: 88.65 kB
+built in 1.72s
+
+Running 1 test using 1 worker
+.
+1 passed (3.3s)
+
+[2026-02-21T19:40:19+08:00] EXIT_CODE: 0
+
+---
+
+[2026-02-21T19:40:38+08:00] CMD: npm -C client run e2e -- electron-security-navigation.spec.ts
+
+> ai-girlfriend-client@0.1.10 e2e
+> node scripts/run-e2e.mjs electron-security-navigation.spec.ts
+
+> ai-girlfriend-client@0.1.10 build
+> npm run build:electron && npm run build:renderer
+
+> ai-girlfriend-client@0.1.10 build:electron
+> tsc -p tsconfig.electron.json
+
+> ai-girlfriend-client@0.1.10 build:renderer
+> vite build --config vite.config.ts
+
+vite v6.4.1 building for production...
+transforming...
+60 modules transformed.
+rendering chunks...
+computing gzip size...
+../../dist/renderer/index.html 0.41 kB | gzip: 0.30 kB
+../../dist/renderer/assets/index-B7JndJQZ.css 10.27 kB | gzip: 2.88 kB
+../../dist/renderer/assets/index-rFsthm_A.js 293.30 kB | gzip: 88.65 kB
+built in 1.66s
+
+Running 2 tests using 1 worker
+..
+2 passed (7.7s)
+
+[2026-02-21T19:40:38+08:00] EXIT_CODE: 0

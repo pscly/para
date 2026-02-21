@@ -1,8 +1,8 @@
 task-9 save isolation evidence
-save_a_id=ba0a2654-5c74-4d02-a44d-408c2228b329
-save_b_id=75df13e4-f51f-4367-a4ce-903223ed75aa
-persona_a_id=6c3980a7-d842-4f85-a424-ffff4a0a1909
-persona_b_id=99ca1625-86b8-4202-9c88-bfa9eeb6a433
+save_a_id=8c24be0e-4a15-45c6-9e61-41fdb86b541d
+save_b_id=df696789-288d-4e04-ac84-448b8bde610e
+persona_a_id=ee571a1f-7db1-45c0-ac9a-14302a80e8fd
+persona_b_id=0777e0a4-100a-4ea0-afbb-074d7058567c
 replay_save_a_text=AI: apple
 replay_save_b_text=AI: banana
 assert_replay_a_contains_apple=True

@@ -16,7 +16,7 @@ scan_blockers: OK
 > node -e "require('fs').mkdirSync('src/gen',{recursive:true})" && openapi-typescript ../contracts/openapi.json -o src/gen/openapi.ts
 
 ✨ openapi-typescript 7.13.0
-🚀 ../contracts/openapi.json → src/gen/openapi.ts [252.4ms]
+🚀 ../contracts/openapi.json → src/gen/openapi.ts [235.2ms]
 
 ========== [STEP OK] 契约漂移检查（OpenAPI + TS 生成物） ==========
 
@@ -28,115 +28,84 @@ rootdir: /root/1codes/1para/server
 configfile: pyproject.toml
 testpaths: tests
 plugins: anyio-4.12.1
-collected 83 items
+collected 90 items
 
-tests/test_auth.py .....                                                 [  6%]
-tests/test_bootstrap_admin_user_script.py ..                             [  8%]
-tests/test_db.py .                                                       [  9%]
-tests/test_health.py ..                                                  [ 12%]
-tests/test_task_11_embedding_routing_and_reembed.py .                    [ 13%]
-tests/test_task_11_memory_search.py .                                    [ 14%]
-tests/test_task_12_dream_event.py .                                      [ 15%]
-tests/test_task_12_pgvector_ann_indexes.py .                             [ 16%]
-tests/test_task_13_knowledge_query.py ..                                 [ 19%]
-tests/test_task_15_vision_screenshot.py ...                              [ 22%]
-tests/test_task_16_sensors_event.py ....                                 [ 27%]
-tests/test_task_17_gallery.py .                                          [ 28%]
-tests/test_task_18_timeline.py ....                                      [ 33%]
-tests/test_task_19_appenc_login.py .                                     [ 34%]
-tests/test_task_19_room_event.py .                                       [ 36%]
-tests/test_task_1_2_no_request_path_ddl.py .                             [ 37%]
-tests/test_task_1_4_prod_config.py .........                             [ 48%]
-tests/test_task_20_invite_codes.py ..                                    [ 50%]
-tests/test_task_20_ugc_approve.py .                                      [ 51%]
-tests/test_task_21_plugins.py .                                          [ 53%]
-tests/test_task_22_admin_flags.py ..                                     [ 55%]
-tests/test_task_23_privacy_audit.py .                                    [ 56%]
-tests/test_task_2_1_ws_eventstore.py .                                   [ 57%]
-tests/test_task_2_2_ws_redis_notify.py .                                 [ 59%]
-tests/test_task_2_3_ws_save_ownership_and_limits.py ..                   [ 61%]
-tests/test_task_3_1_auth_rate_limit.py ....                              [ 66%]
-tests/test_task_3_2_auth_password_reset_and_email_normalization.py ..... [ 72%]
-                                                                         [ 72%]
-tests/test_task_3_4_upload_limits.py ....                                [ 77%]
-tests/test_task_3_5_audit_logs_list.py .                                 [ 78%]
-tests/test_task_4_2_llm_usage_metrics.py ..                              [ 80%]
-tests/test_task_4_version_header.py .                                    [ 81%]
-tests/test_task_5_2_admin_review_queue.py .                              [ 83%]
-tests/test_task_5_3_admin_web_deploy_security.py ...                     [ 86%]
-tests/test_task_6_5_app_encryption.py ...                                [ 90%]
-tests/test_task_9_admin_llm_channels.py .                                [ 91%]
-tests/test_task_9_save_isolation.py .                                    [ 92%]
+tests/test_auth.py .....                                                 [  5%]
+tests/test_bootstrap_admin_user_script.py ..                             [  7%]
+tests/test_db.py .                                                       [  8%]
+tests/test_health.py ..                                                  [ 11%]
+tests/test_task_11_embedding_routing_and_reembed.py .                    [ 12%]
+tests/test_task_11_memory_search.py .                                    [ 13%]
+tests/test_task_12_dream_event.py .                                      [ 14%]
+tests/test_task_12_pgvector_ann_indexes.py .                             [ 15%]
+tests/test_task_13_knowledge_query.py ..                                 [ 17%]
+tests/test_task_15_vision_screenshot.py ...                              [ 21%]
+tests/test_task_16_sensors_event.py ....                                 [ 25%]
+tests/test_task_17_gallery.py .                                          [ 26%]
+tests/test_task_18_timeline.py ....                                      [ 31%]
+tests/test_task_19_appenc_login.py .                                     [ 32%]
+tests/test_task_19_room_event.py .                                       [ 33%]
+tests/test_task_1_2_no_request_path_ddl.py .                             [ 34%]
+tests/test_task_1_4_prod_config.py .........                             [ 44%]
+tests/test_task_20_invite_codes.py ..                                    [ 46%]
+tests/test_task_20_ugc_approve.py .                                      [ 47%]
+tests/test_task_21_plugins.py .                                          [ 48%]
+tests/test_task_22_admin_flags.py .....                                  [ 54%]
+tests/test_task_23_privacy_audit.py .                                    [ 55%]
+tests/test_task_2_0_bootstrap_admin_registration.py ....                 [ 60%]
+tests/test_task_2_1_ws_eventstore.py .                                   [ 61%]
+tests/test_task_2_2_ws_redis_notify.py .                                 [ 62%]
+tests/test_task_2_3_ws_save_ownership_and_limits.py ..                   [ 64%]
+tests/test_task_3_1_auth_rate_limit.py ....                              [ 68%]
+tests/test_task_3_2_auth_password_reset_and_email_normalization.py ..... [ 74%]
+                                                                         [ 74%]
+tests/test_task_3_4_upload_limits.py ....                                [ 78%]
+tests/test_task_3_5_audit_logs_list.py .                                 [ 80%]
+tests/test_task_4_2_llm_usage_metrics.py ..                              [ 82%]
+tests/test_task_4_version_header.py .                                    [ 83%]
+tests/test_task_5_2_admin_review_queue.py .                              [ 84%]
+tests/test_task_5_3_admin_web_deploy_security.py ...                     [ 87%]
+tests/test_task_6_5_app_encryption.py ...                                [ 91%]
+tests/test_task_9_admin_llm_channels.py .                                [ 92%]
+tests/test_task_9_save_isolation.py .                                    [ 93%]
 tests/test_ws_v1_chat_stream.py ..                                       [ 95%]
 tests/test_ws_v1_openai_streaming_stub.py ...                            [ 98%]
 tests/test_ws_v1_resume.py .                                             [100%]
 
 =============================== warnings summary ===============================
-tests/test_auth.py: 6 warnings
-tests/test_task_11_embedding_routing_and_reembed.py: 1 warning
-tests/test_task_11_memory_search.py: 1 warning
-tests/test_task_12_dream_event.py: 1 warning
-tests/test_task_13_knowledge_query.py: 2 warnings
-tests/test_task_15_vision_screenshot.py: 3 warnings
-tests/test_task_16_sensors_event.py: 4 warnings
-tests/test_task_17_gallery.py: 1 warning
-tests/test_task_18_timeline.py: 4 warnings
-tests/test_task_19_appenc_login.py: 1 warning
-tests/test_task_19_room_event.py: 2 warnings
-tests/test_task_1_2_no_request_path_ddl.py: 1 warning
-tests/test_task_20_invite_codes.py: 2 warnings
-tests/test_task_20_ugc_approve.py: 2 warnings
-tests/test_task_21_plugins.py: 1 warning
-tests/test_task_23_privacy_audit.py: 1 warning
-tests/test_task_2_1_ws_eventstore.py: 1 warning
-tests/test_task_2_2_ws_redis_notify.py: 1 warning
-tests/test_task_2_3_ws_save_ownership_and_limits.py: 3 warnings
-tests/test_task_3_1_auth_rate_limit.py: 5 warnings
-tests/test_task_3_2_auth_password_reset_and_email_normalization.py: 5 warnings
-tests/test_task_3_4_upload_limits.py: 3 warnings
-tests/test_task_3_5_audit_logs_list.py: 1 warning
-tests/test_task_4_2_llm_usage_metrics.py: 1 warning
-tests/test_task_5_2_admin_review_queue.py: 1 warning
-tests/test_task_6_5_app_encryption.py: 3 warnings
-tests/test_task_9_save_isolation.py: 1 warning
-tests/test_ws_v1_chat_stream.py: 2 warnings
-tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
-tests/test_ws_v1_resume.py: 1 warning
-  /root/1codes/1para/server/app/api/v1/auth.py:203: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    now = datetime.utcnow()
-
-tests/test_auth.py: 24 warnings
-tests/test_task_11_embedding_routing_and_reembed.py: 6 warnings
-tests/test_task_11_memory_search.py: 4 warnings
-tests/test_task_12_dream_event.py: 4 warnings
-tests/test_task_13_knowledge_query.py: 10 warnings
-tests/test_task_15_vision_screenshot.py: 11 warnings
-tests/test_task_16_sensors_event.py: 15 warnings
-tests/test_task_17_gallery.py: 4 warnings
-tests/test_task_18_timeline.py: 16 warnings
-tests/test_task_19_appenc_login.py: 5 warnings
-tests/test_task_19_room_event.py: 8 warnings
-tests/test_task_1_2_no_request_path_ddl.py: 5 warnings
-tests/test_task_20_invite_codes.py: 11 warnings
-tests/test_task_20_ugc_approve.py: 8 warnings
-tests/test_task_21_plugins.py: 7 warnings
-tests/test_task_22_admin_flags.py: 6 warnings
-tests/test_task_23_privacy_audit.py: 6 warnings
-tests/test_task_2_1_ws_eventstore.py: 4 warnings
-tests/test_task_2_2_ws_redis_notify.py: 4 warnings
-tests/test_task_2_3_ws_save_ownership_and_limits.py: 11 warnings
-tests/test_task_3_1_auth_rate_limit.py: 37 warnings
-tests/test_task_3_2_auth_password_reset_and_email_normalization.py: 25 warnings
-tests/test_task_3_4_upload_limits.py: 12 warnings
-tests/test_task_3_5_audit_logs_list.py: 8 warnings
-tests/test_task_4_2_llm_usage_metrics.py: 7 warnings
-tests/test_task_5_2_admin_review_queue.py: 7 warnings
-tests/test_task_6_5_app_encryption.py: 12 warnings
+tests/test_auth.py: 45 warnings
+tests/test_task_11_embedding_routing_and_reembed.py: 11 warnings
+tests/test_task_11_memory_search.py: 8 warnings
+tests/test_task_12_dream_event.py: 8 warnings
+tests/test_task_13_knowledge_query.py: 18 warnings
+tests/test_task_15_vision_screenshot.py: 19 warnings
+tests/test_task_16_sensors_event.py: 27 warnings
+tests/test_task_17_gallery.py: 8 warnings
+tests/test_task_18_timeline.py: 32 warnings
+tests/test_task_19_appenc_login.py: 9 warnings
+tests/test_task_19_room_event.py: 12 warnings
+tests/test_task_1_2_no_request_path_ddl.py: 9 warnings
+tests/test_task_20_invite_codes.py: 22 warnings
+tests/test_task_20_ugc_approve.py: 12 warnings
+tests/test_task_21_plugins.py: 11 warnings
+tests/test_task_22_admin_flags.py: 14 warnings
+tests/test_task_23_privacy_audit.py: 11 warnings
+tests/test_task_2_0_bootstrap_admin_registration.py: 40 warnings
+tests/test_task_2_1_ws_eventstore.py: 8 warnings
+tests/test_task_2_2_ws_redis_notify.py: 8 warnings
+tests/test_task_2_3_ws_save_ownership_and_limits.py: 19 warnings
+tests/test_task_3_1_auth_rate_limit.py: 49 warnings
+tests/test_task_3_2_auth_password_reset_and_email_normalization.py: 41 warnings
+tests/test_task_3_4_upload_limits.py: 24 warnings
+tests/test_task_3_5_audit_logs_list.py: 13 warnings
+tests/test_task_4_2_llm_usage_metrics.py: 11 warnings
+tests/test_task_5_2_admin_review_queue.py: 11 warnings
+tests/test_task_6_5_app_encryption.py: 24 warnings
 tests/test_task_9_admin_llm_channels.py: 5 warnings
-tests/test_task_9_save_isolation.py: 9 warnings
-tests/test_ws_v1_chat_stream.py: 10 warnings
-tests/test_ws_v1_openai_streaming_stub.py: 27 warnings
-tests/test_ws_v1_resume.py: 4 warnings
+tests/test_task_9_save_isolation.py: 13 warnings
+tests/test_ws_v1_chat_stream.py: 18 warnings
+tests/test_ws_v1_openai_streaming_stub.py: 39 warnings
+tests/test_ws_v1_resume.py: 8 warnings
   /root/1codes/1para/server/.venv/lib/python3.12/site-packages/sqlalchemy/sql/schema.py:3624: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     return util.wrap_callable(lambda ctx: fn(), fn)  # type: ignore
 
@@ -152,10 +121,11 @@ tests/test_task_18_timeline.py: 4 warnings
 tests/test_task_19_appenc_login.py: 1 warning
 tests/test_task_19_room_event.py: 2 warnings
 tests/test_task_1_2_no_request_path_ddl.py: 1 warning
-tests/test_task_20_invite_codes.py: 1 warning
+tests/test_task_20_invite_codes.py: 4 warnings
 tests/test_task_20_ugc_approve.py: 2 warnings
 tests/test_task_21_plugins.py: 1 warning
 tests/test_task_23_privacy_audit.py: 1 warning
+tests/test_task_2_0_bootstrap_admin_registration.py: 6 warnings
 tests/test_task_2_1_ws_eventstore.py: 1 warning
 tests/test_task_2_2_ws_redis_notify.py: 1 warning
 tests/test_task_2_3_ws_save_ownership_and_limits.py: 3 warnings
@@ -170,7 +140,41 @@ tests/test_task_9_save_isolation.py: 1 warning
 tests/test_ws_v1_chat_stream.py: 2 warnings
 tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
 tests/test_ws_v1_resume.py: 1 warning
-  /root/1codes/1para/server/app/api/v1/auth.py:261: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:300: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+tests/test_auth.py: 5 warnings
+tests/test_task_11_embedding_routing_and_reembed.py: 1 warning
+tests/test_task_11_memory_search.py: 1 warning
+tests/test_task_12_dream_event.py: 1 warning
+tests/test_task_13_knowledge_query.py: 2 warnings
+tests/test_task_15_vision_screenshot.py: 3 warnings
+tests/test_task_16_sensors_event.py: 4 warnings
+tests/test_task_17_gallery.py: 1 warning
+tests/test_task_18_timeline.py: 4 warnings
+tests/test_task_19_appenc_login.py: 1 warning
+tests/test_task_19_room_event.py: 2 warnings
+tests/test_task_1_2_no_request_path_ddl.py: 1 warning
+tests/test_task_20_invite_codes.py: 2 warnings
+tests/test_task_20_ugc_approve.py: 2 warnings
+tests/test_task_21_plugins.py: 1 warning
+tests/test_task_23_privacy_audit.py: 1 warning
+tests/test_task_2_0_bootstrap_admin_registration.py: 4 warnings
+tests/test_task_2_1_ws_eventstore.py: 1 warning
+tests/test_task_2_2_ws_redis_notify.py: 1 warning
+tests/test_task_2_3_ws_save_ownership_and_limits.py: 3 warnings
+tests/test_task_3_1_auth_rate_limit.py: 4 warnings
+tests/test_task_3_2_auth_password_reset_and_email_normalization.py: 4 warnings
+tests/test_task_3_4_upload_limits.py: 3 warnings
+tests/test_task_3_5_audit_logs_list.py: 1 warning
+tests/test_task_4_2_llm_usage_metrics.py: 1 warning
+tests/test_task_5_2_admin_review_queue.py: 1 warning
+tests/test_task_6_5_app_encryption.py: 3 warnings
+tests/test_task_9_save_isolation.py: 1 warning
+tests/test_ws_v1_chat_stream.py: 2 warnings
+tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
+tests/test_ws_v1_resume.py: 1 warning
+  /root/1codes/1para/server/app/api/v1/auth.py:347: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
 
 tests/test_auth.py: 5 warnings
@@ -185,10 +189,11 @@ tests/test_task_18_timeline.py: 4 warnings
 tests/test_task_19_appenc_login.py: 1 warning
 tests/test_task_19_room_event.py: 2 warnings
 tests/test_task_1_2_no_request_path_ddl.py: 1 warning
-tests/test_task_20_invite_codes.py: 1 warning
+tests/test_task_20_invite_codes.py: 2 warnings
 tests/test_task_20_ugc_approve.py: 2 warnings
 tests/test_task_21_plugins.py: 1 warning
 tests/test_task_23_privacy_audit.py: 1 warning
+tests/test_task_2_0_bootstrap_admin_registration.py: 4 warnings
 tests/test_task_2_1_ws_eventstore.py: 1 warning
 tests/test_task_2_2_ws_redis_notify.py: 1 warning
 tests/test_task_2_3_ws_save_ownership_and_limits.py: 3 warnings
@@ -203,7 +208,7 @@ tests/test_task_9_save_isolation.py: 1 warning
 tests/test_ws_v1_chat_stream.py: 2 warnings
 tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
 tests/test_ws_v1_resume.py: 1 warning
-  /root/1codes/1para/server/app/api/v1/auth.py:270: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:356: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     expires_at=datetime.utcnow() + timedelta(days=settings.auth_refresh_token_ttl_days),
 
 tests/test_auth.py::test_refresh_rotates_old_becomes_invalid_and_new_works
@@ -214,11 +219,11 @@ tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_refresh_rate_limit_lockout
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_refresh_rate_limit_lockout_and_success_resets
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_refresh_rate_limit_lockout_and_success_resets
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_refresh_rate_limit_lockout_and_success_resets
-  /root/1codes/1para/server/app/api/v1/auth.py:343: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:429: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_auth.py::test_logout_revokes_refresh_token
-  /root/1codes/1para/server/app/api/v1/auth.py:389: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:475: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_11_embedding_routing_and_reembed.py::test_task_11_embedding_admin_routing_and_reembed_checkpointing
@@ -254,6 +259,16 @@ tests/test_task_13_knowledge_query.py::test_task_45_knowledge_reindex_and_delete
   /root/1codes/1para/server/app/api/v1/knowledge.py:365: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
+tests/test_task_15_vision_screenshot.py::test_task_15_sensors_screenshot_save_ownership_404
+tests/test_task_16_sensors_event.py::test_task_16_sensors_event_save_ownership_404
+tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
+tests/test_task_20_invite_codes.py::test_task_20_invite_register_one_time_and_admin_audit
+tests/test_task_20_ugc_approve.py::test_task_20_ugc_upload_approve_then_list_approved_writes_evidence
+tests/test_task_2_3_ws_save_ownership_and_limits.py::test_task_2_3_ws_v1_rejects_connecting_to_non_owned_save
+tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_register_rate_limit_applies
+  /root/1codes/1para/server/app/api/v1/admin_invites.py:103: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
 tests/test_task_17_gallery.py::test_task_17_gallery_generate_complete_list_writes_files
   /root/1codes/1para/server/app/api/v1/gallery.py:133: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
@@ -270,14 +285,14 @@ tests/test_task_19_appenc_login.py::test_task_19_appenc_login_encrypt_req_and_re
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_login_rate_limit_lockout_expiry_and_success_resets
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_login_email_case_insensitive
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
-  /root/1codes/1para/server/app/api/v1/auth.py:305: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:391: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     device = Device(user_id=user.id, name=None, last_seen_at=datetime.utcnow(), revoked_at=None)
 
 tests/test_task_19_appenc_login.py::test_task_19_appenc_login_encrypt_req_and_resp
 tests/test_task_3_1_auth_rate_limit.py::test_task_3_1_login_rate_limit_lockout_expiry_and_success_resets
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_login_email_case_insensitive
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
-  /root/1codes/1para/server/app/api/v1/auth.py:314: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:400: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     expires_at=datetime.utcnow() + timedelta(days=settings.auth_refresh_token_ttl_days),
 
 tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
@@ -290,10 +305,6 @@ tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay
 
 tests/test_task_19_room_event.py::test_task_19_room_create_invite_join_ws_replay_writes_evidence
   /root/1codes/1para/server/app/api/v1/social.py:239: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
-    now = datetime.utcnow()
-
-tests/test_task_20_invite_codes.py::test_task_20_invite_register_one_time_and_admin_audit
-  /root/1codes/1para/server/app/api/v1/admin_invites.py:103: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_20_invite_codes.py::test_task_20_invite_register_one_time_and_admin_audit
@@ -324,21 +335,23 @@ tests/test_task_5_2_admin_review_queue.py::test_task_5_2_admin_review_queue_list
     now = datetime.utcnow()
 
 tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
-tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_partial_update_does_not_clear_other_overrides
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_partial_update_does_not_clear_other_overrides
 tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
 tests/test_task_3_5_audit_logs_list.py::test_task_3_5_audit_logs_list_filters_and_pagination
   /root/1codes/1para/server/app/api/v1/admin_config.py:98: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
-tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_partial_update_does_not_clear_other_overrides
+tests/test_task_22_admin_flags.py::test_task_22_admin_flags_partial_update_does_not_clear_other_overrides
 tests/test_task_23_privacy_audit.py::test_task_23_redaction_audit_and_retention
 tests/test_task_3_5_audit_logs_list.py::test_task_3_5_audit_logs_list_filters_and_pagination
-  /root/1codes/1para/server/app/api/v1/admin_config.py:220: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/admin_config.py:264: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_22_admin_flags.py::test_task_22_admin_flags_rbac_and_user_get
-  /root/1codes/1para/server/app/api/v1/feature_flags.py:53: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/feature_flags.py:57: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow().replace(microsecond=0)
 
 tests/test_task_2_1_ws_eventstore.py: 3 warnings
@@ -353,13 +366,13 @@ tests/test_ws_v1_openai_streaming_stub.py: 3 warnings
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_request_is_non_enumerating
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
-  /root/1codes/1para/server/app/api/v1/auth.py:445: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:531: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
 tests/test_task_3_2_auth_password_reset_and_email_normalization.py::test_task_3_2_password_reset_confirm_success_old_password_invalid_token_reuse_and_expiry
-  /root/1codes/1para/server/app/api/v1/auth.py:483: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+  /root/1codes/1para/server/app/api/v1/auth.py:569: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
     now = datetime.utcnow()
 
 tests/test_task_3_4_upload_limits.py::test_task_3_4_knowledge_upload_too_large_returns_413_and_cleans
@@ -403,9 +416,18 @@ tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writ
     now = datetime.utcnow()
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
-====================== 83 passed, 678 warnings in 40.63s =======================
+====================== 90 passed, 976 warnings in 42.55s =======================
 
 ========== [STEP OK] Server 测试（pytest） ==========
+
+========== [STEP START] Client 类型检查（tsc） ==========
++ npm -C client run lint
+
+> ai-girlfriend-client@0.1.10 lint
+> tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit
+
+
+========== [STEP OK] Client 类型检查（tsc） ==========
 
 ========== [STEP START] Client 单测 ==========
 + npm -C client test
@@ -415,15 +437,16 @@ tests/test_task_9_save_isolation.py::test_task_9_save_isolation_rest_and_ws_writ
 
 [33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
 
- RUN  v2.1.9 /root/1codes/1para/client
+[1m[7m[36m RUN [39m[27m[22m [36mv2.1.9 [39m[90m/root/1codes/1para/client[39m
 
- ✓ tests/app.smoke.test.tsx (1 test) 143ms
- ✓ tests/plugins-consent.test.tsx (1 test) 208ms
+ [32m✓[39m tests/app.smoke.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 167[2mms[22m[39m
+ [32m✓[39m tests/ui-primitives.test.tsx [2m([22m[2m3 tests[22m[2m)[22m[90m 181[2mms[22m[39m
+ [32m✓[39m tests/plugins-consent.test.tsx [2m([22m[2m1 test[22m[2m)[22m[90m 225[2mms[22m[39m
 
- Test Files  2 passed (2)
-      Tests  2 passed (2)
-   Start at  16:48:21
-   Duration  1.55s (transform 249ms, setup 165ms, collect 607ms, tests 351ms, environment 1.06s, prepare 256ms)
+[2m Test Files [22m [1m[32m3 passed[39m[22m[90m (3)[39m
+[2m      Tests [22m [1m[32m5 passed[39m[22m[90m (5)[39m
+[2m   Start at [22m 20:31:00
+[2m   Duration [22m 1.52s[2m (transform 418ms, setup 230ms, collect 966ms, tests 573ms, environment 1.61s, prepare 350ms)[22m
 
 
 ========== [STEP OK] Client 单测 ==========

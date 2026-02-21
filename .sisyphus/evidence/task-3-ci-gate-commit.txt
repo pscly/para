@@ -1,0 +1,25 @@
+[2026-02-21T19:28:39+08:00] Task 3 Evidence: CI gate commit boundary (commit f1ea7c2)
+
+$ git rev-parse --short f1ea7c2
+f1ea7c2
+
+$ git show --name-only --pretty="" f1ea7c2
+.github/workflows/ci.yml
+.sisyphus/evidence/task-1-ci-client-typecheck.txt
+.sisyphus/evidence/task-2-playwright-smoke.txt
+scripts/ci.sh
+
+$ git diff --cached --name-only
+
+$ git status --porcelain=v1
+?? .sisyphus/evidence/task-1-branch-create.txt
+?? .sisyphus/evidence/task-2-safety-scan.txt
+
+[2026-02-21T19:30:50+08:00] Post-write check (staging remains empty)
+
+$ git diff --cached --name-only
+
+$ git status --porcelain=v1
+?? .sisyphus/evidence/task-1-branch-create.txt
+?? .sisyphus/evidence/task-2-safety-scan.txt
+?? .sisyphus/evidence/task-3-ci-gate-commit.txt

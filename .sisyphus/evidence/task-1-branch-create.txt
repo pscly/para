@@ -1,0 +1,33 @@
+Task: 1 - Create feature branch from current HEAD (do not push main)
+Timestamp: 2026-02-21T19:08:32+08:00
+
+Result: No branch creation needed; already on intended feature branch.
+
+Command: git branch --show-current
+Output:
+client-ui-refactor-split-pr
+
+Command: git status --porcelain=v1
+Output:
+(empty)
+
+Command: git branch --list
+Output:
+  chore/wave-commits
+  chore/wave5-split
+* client-ui-refactor-split-pr
+  main
+
+Post-write verification (ensures no staged changes were introduced)
+
+Command: git branch --show-current
+Output:
+client-ui-refactor-split-pr
+
+Command: git status --porcelain=v1
+Output:
+?? .sisyphus/evidence/task-1-branch-create.txt
+
+Command: git diff --staged --stat
+Output:
+(empty)

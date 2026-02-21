@@ -1,0 +1,200 @@
+# Task 4 Evidence: session commit isolation + keyword scan
+
+timestamp: 2026-02-21T19:34:15+08:00
+
+## Commands + raw outputs
+
+$ git rev-parse --short 6e46150
+6e46150
+
+$ git show --name-only --pretty="" 6e46150
+.ai_session.md
+
+$ git diff --cached --name-only
+(no output)
+
+$ git status --porcelain=v1
+?? .sisyphus/evidence/task-1-branch-create.txt
+?? .sisyphus/evidence/task-2-safety-scan.txt
+?? .sisyphus/evidence/task-3-ci-gate-commit.txt
+
+## Keyword scan report (path:line keyword only)
+
+patterns: OPENAI_API_KEY|DATABASE_URL|psycopg://|PASSWORD|sk-
+
+$ python - <<'PY'
+import re
+from pathlib import Path
+path = Path('.ai_session.md')
+patterns = re.compile(r'(OPENAI_API_KEY|DATABASE_URL|psycopg://|PASSWORD|sk-)')
+if not path.exists():
+    raise SystemExit(f"missing: {path}")
+for i, line in enumerate(path.read_text(encoding='utf-8', errors='replace').splitlines(), 1):
+    hits = {m.group(1) for m in patterns.finditer(line)}
+    for kw in sorted(hits):
+        print(f"{path}:{i} {kw}")
+PY
+.ai_session.md:18 sk-
+.ai_session.md:22 sk-
+.ai_session.md:26 sk-
+.ai_session.md:28 sk-
+.ai_session.md:100 sk-
+.ai_session.md:102 sk-
+.ai_session.md:118 PASSWORD
+.ai_session.md:208 DATABASE_URL
+.ai_session.md:212 sk-
+.ai_session.md:217 sk-
+.ai_session.md:222 sk-
+.ai_session.md:236 PASSWORD
+.ai_session.md:246 sk-
+.ai_session.md:262 sk-
+.ai_session.md:263 sk-
+.ai_session.md:278 sk-
+.ai_session.md:318 OPENAI_API_KEY
+.ai_session.md:400 sk-
+.ai_session.md:438 sk-
+.ai_session.md:450 sk-
+.ai_session.md:455 sk-
+.ai_session.md:471 sk-
+.ai_session.md:477 sk-
+.ai_session.md:481 sk-
+.ai_session.md:491 sk-
+.ai_session.md:499 sk-
+.ai_session.md:502 sk-
+.ai_session.md:540 DATABASE_URL
+.ai_session.md:588 sk-
+.ai_session.md:675 sk-
+.ai_session.md:676 sk-
+.ai_session.md:713 sk-
+.ai_session.md:756 sk-
+.ai_session.md:760 DATABASE_URL
+.ai_session.md:761 DATABASE_URL
+.ai_session.md:766 sk-
+.ai_session.md:925 sk-
+.ai_session.md:969 sk-
+.ai_session.md:970 sk-
+.ai_session.md:1003 sk-
+.ai_session.md:1026 sk-
+.ai_session.md:1027 sk-
+.ai_session.md:1073 sk-
+.ai_session.md:1087 sk-
+.ai_session.md:1104 sk-
+.ai_session.md:1118 sk-
+.ai_session.md:1129 sk-
+.ai_session.md:1131 sk-
+.ai_session.md:1146 sk-
+.ai_session.md:1153 sk-
+.ai_session.md:1160 sk-
+.ai_session.md:1185 sk-
+.ai_session.md:1203 sk-
+.ai_session.md:1208 sk-
+.ai_session.md:1218 sk-
+.ai_session.md:1224 sk-
+.ai_session.md:1234 sk-
+.ai_session.md:1279 sk-
+.ai_session.md:1348 sk-
+.ai_session.md:1383 sk-
+.ai_session.md:1390 sk-
+.ai_session.md:1404 sk-
+.ai_session.md:1406 sk-
+.ai_session.md:1417 sk-
+.ai_session.md:1453 sk-
+.ai_session.md:1454 sk-
+.ai_session.md:1587 sk-
+.ai_session.md:1609 sk-
+.ai_session.md:1667 sk-
+.ai_session.md:1673 sk-
+.ai_session.md:1728 PASSWORD
+.ai_session.md:1751 sk-
+.ai_session.md:1760 sk-
+.ai_session.md:1772 PASSWORD
+.ai_session.md:1886 sk-
+.ai_session.md:1887 sk-
+.ai_session.md:1904 DATABASE_URL
+.ai_session.md:1943 OPENAI_API_KEY
+.ai_session.md:1943 sk-
+.ai_session.md:1987 sk-
+.ai_session.md:1992 OPENAI_API_KEY
+.ai_session.md:2010 sk-
+.ai_session.md:2015 PASSWORD
+.ai_session.md:2016 sk-
+.ai_session.md:2022 sk-
+.ai_session.md:2052 sk-
+.ai_session.md:2060 sk-
+.ai_session.md:2061 sk-
+.ai_session.md:2069 sk-
+.ai_session.md:2071 sk-
+.ai_session.md:2096 sk-
+.ai_session.md:2098 sk-
+.ai_session.md:2099 sk-
+.ai_session.md:2103 sk-
+
+## Classification (no matching lines printed)
+
+$ python - <<'PY'
+import re
+from pathlib import Path
+path = Path('.ai_session.md')
+text = path.read_text(encoding='utf-8', errors='replace').splitlines()
+kw_re = re.compile(r'(OPENAI_API_KEY|DATABASE_URL|psycopg://|PASSWORD|sk-)')
+
+# Heuristic: flag "needs_review" if it looks like a real token/credential, but do not print the line content.
+real_sk_re = re.compile(r'sk-[A-Za-z0-9]{20,}')
+placeholder_markers = re.compile(r'REDACTED|<YOUR_|示例|example|占位', re.IGNORECASE)
+
+total = 0
+placeholder_like = 0
+needs_review = 0
+needs_review_lines = []
+counts = {}
+
+for i, line in enumerate(text, 1):
+    kws = {m.group(1) for m in kw_re.finditer(line)}
+    if not kws:
+        continue
+    for kw in kws:
+        counts[kw] = counts.get(kw, 0) + 1
+    total += 1
+
+    is_placeholder = bool(placeholder_markers.search(line))
+    is_real_sk = bool(real_sk_re.search(line))
+    if is_real_sk and not is_placeholder:
+        needs_review += 1
+        needs_review_lines.append(i)
+    else:
+        if is_placeholder:
+            placeholder_like += 1
+
+print(f"total_matched_lines={total}")
+for k in sorted(counts):
+    print(f"count[{k}]={counts[k]}")
+print(f"placeholder_like_lines={placeholder_like}")
+print(f"needs_review_lines={needs_review}")
+if needs_review_lines:
+    print("needs_review_line_numbers=" + ",".join(map(str, needs_review_lines)))
+PY
+total_matched_lines=93
+count[DATABASE_URL]=5
+count[OPENAI_API_KEY]=3
+count[PASSWORD]=5
+count[sk-]=81
+placeholder_like_lines=1
+needs_review_lines=0
+
+Assessment:
+- `git show` indicates commit 6e46150 touches ONLY `.ai_session.md`.
+- Keyword scan produced matches, but the heuristic found 0 lines containing a real-looking OpenAI key shape `sk-[A-Za-z0-9]{20,}`.
+- Based on this, matches appear to be references/examples/placeholders rather than leaked secrets.
+
+## Post-write check (no staging / no commits)
+
+timestamp: 2026-02-21T19:36:25+08:00
+
+$ git diff --cached --name-only
+(no output)
+
+$ git status --porcelain=v1
+?? .sisyphus/evidence/task-1-branch-create.txt
+?? .sisyphus/evidence/task-2-safety-scan.txt
+?? .sisyphus/evidence/task-3-ci-gate-commit.txt
+?? .sisyphus/evidence/task-4-session-commit.txt

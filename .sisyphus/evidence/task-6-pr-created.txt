@@ -1,0 +1,20 @@
+[2026-02-21T19:47:23+08:00] TASK 6 - Push branch and ensure PR exists
+
+## git status -sb
+## client-ui-refactor-split-pr...origin/client-ui-refactor-split-pr [ahead 1]
+?? .sisyphus/evidence/task-1-branch-create.txt
+?? .sisyphus/evidence/task-2-safety-scan.txt
+?? .sisyphus/evidence/task-3-ci-gate-commit.txt
+?? .sisyphus/evidence/task-4-session-commit.txt
+?? .sisyphus/evidence/task-5-min-verify.txt
+
+## git push -u origin client-ui-refactor-split-pr
+To github.com:pscly/para.git
+   6e46150..138d80c  client-ui-refactor-split-pr -> client-ui-refactor-split-pr
+branch 'client-ui-refactor-split-pr' set up to track 'origin/client-ui-refactor-split-pr'.
+
+## gh pr view client-ui-refactor-split-pr --json url,state,baseRefName,headRefName
+{"baseRefName":"main","headRefName":"client-ui-refactor-split-pr","state":"OPEN","url":"https://github.com/pscly/para/pull/1"}
+
+## note
+- PR already existed, so `gh pr create` was not executed.
