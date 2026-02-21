@@ -122,3 +122,48 @@ jobs:
         run: |
           set -euo pipefail
           docker compose -f docker-compose.yml --env-file .env.example down -v
+
+  client_e2e_smoke:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies (npm ci)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client ci
+
+      - name: Install Playwright browsers (Chromium)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client exec -- playwright install --with-deps chromium
+
+      - name: Run client e2e smoke (Electron)
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm -C client run e2e -- electron-smoke.spec.ts
+
+      - name: Upload Playwright artifacts (on failure)
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: client-e2e-smoke-artifacts
+          path: |
+            client/playwright-results/**
+            .sisyphus/evidence/**
+          if-no-files-found: ignore
+          retention-days: 7

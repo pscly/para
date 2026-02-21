@@ -1,0 +1,10 @@
+
+> ai-girlfriend-client@0.1.10 lint
+> tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.json --noEmit
+
+
+
+[ci.sh snippet]
+52: do_client_lint() {
+54:   npm -C client run lint
+65:   run_step "Client 类型检查（tsc）" "npm -C client run lint" do_client_lint || return 1
