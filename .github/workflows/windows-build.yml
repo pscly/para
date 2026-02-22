@@ -28,18 +28,12 @@ jobs:
         run: npm ci
         working-directory: client
 
-      - name: Enable code signing (optional)
-        if: ${{ secrets.CSC_LINK != '' }}
-        shell: pwsh
-        run: |
-          "CSC_LINK=${{ secrets.CSC_LINK }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          if ("${{ secrets.CSC_KEY_PASSWORD }}" -ne "") {
-            "CSC_KEY_PASSWORD=${{ secrets.CSC_KEY_PASSWORD }}" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-          }
-
       - name: Package (Windows)
         run: npm run package:win
         working-directory: client
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
