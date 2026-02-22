@@ -90,6 +90,10 @@ export const TEST_IDS = {
   securityAppEncToggle: 'security-appenc-toggle',
   securityAppEncError: 'security-appenc-error',
 
+  devOptionsToggle: 'devOptionsToggle',
+  devOptionsEffective: 'devOptionsEffective',
+  devOptionsReason: 'devOptionsReason',
+
   userDataCard: 'userdata-card',
   userDataCurrentDir: 'userdata-current-dir',
   userDataConfigPath: 'userdata-config-path',

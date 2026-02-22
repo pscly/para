@@ -3,6 +3,7 @@ import { contextBridge, ipcRenderer } from 'electron';
 type AuthMe = {
   user_id: string | number;
   email: string;
+  debug_allowed: boolean;
 };
 
 type WsStatus = 'connected' | 'reconnecting' | 'disconnected';
@@ -216,6 +217,13 @@ type AppEncStatus = {
   configPath: string;
 };
 
+type DevOptionsStatus = {
+  desiredEnabled: boolean;
+  effectiveEnabled: boolean;
+  error: string | null;
+  configPath: string;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
   getAppVersion: async (): Promise<string> => {
@@ -234,6 +242,12 @@ contextBridge.exposeInMainWorld('desktopApi', {
     },
     setAppEncEnabled: async (enabled: boolean): Promise<AppEncStatus> => {
       return ipcRenderer.invoke('security:appEnc:setEnabled', { enabled }) as Promise<AppEncStatus>;
+    },
+    getDevOptionsStatus: async (): Promise<DevOptionsStatus> => {
+      return ipcRenderer.invoke('security:devOptions:getStatus') as Promise<DevOptionsStatus>;
+    },
+    setDevOptionsEnabled: async (enabled: boolean): Promise<DevOptionsStatus> => {
+      return ipcRenderer.invoke('security:devOptions:setEnabled', { enabled }) as Promise<DevOptionsStatus>;
     }
   },
   knowledge: {

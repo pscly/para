@@ -87,6 +87,9 @@ const IPC_APP_RELAUNCH = 'app:relaunch';
 const IPC_SECURITY_APPENC_GET_STATUS = 'security:appEnc:getStatus';
 const IPC_SECURITY_APPENC_SET_ENABLED = 'security:appEnc:setEnabled';
 
+const IPC_SECURITY_DEVOPTIONS_GET_STATUS = 'security:devOptions:getStatus';
+const IPC_SECURITY_DEVOPTIONS_SET_ENABLED = 'security:devOptions:setEnabled';
+
 const DEFAULT_SERVER_BASE_URL = 'http://localhost:8000';
 
 const PARA_EXTERNAL_OPEN_ORIGINS_ENV = 'PARA_EXTERNAL_OPEN_ORIGINS';
@@ -350,6 +353,7 @@ type LoginResponse = {
 type AuthMeResponse = {
   user_id: string | number;
   email: string;
+  debug_allowed: boolean;
 };
 
 type StoredAuthTokensFile = {
@@ -985,9 +989,11 @@ function isLoginResponse(value: unknown): value is LoginResponse {
 function isAuthMeResponse(value: unknown): value is AuthMeResponse {
   if (!isObjectRecord(value)) return false;
   const userId = value.user_id;
+  const debugAllowed = (value as { debug_allowed?: unknown }).debug_allowed;
   return (
     (typeof userId === 'string' || typeof userId === 'number') &&
-    typeof value.email === 'string'
+    typeof value.email === 'string' &&
+    typeof debugAllowed === 'boolean'
   );
 }
 
@@ -1790,9 +1796,16 @@ type AppEncStatus = {
   error: string | null;
 };
 
+type DevOptionsStatus = {
+  desiredEnabled: boolean;
+  effectiveEnabled: boolean;
+  error: string | null;
+};
+
 type ParaSecurityConfigFile = {
   version: 1;
   appEncEnabled?: boolean;
+  developerOptionsEnabled?: boolean;
 };
 
 function getParaSecurityConfigPath(appDataDir: string): string {
@@ -1805,12 +1818,14 @@ async function tryReadParaSecurityConfig(appDataDir: string): Promise<ParaSecuri
     const raw = await fs.readFile(p, { encoding: 'utf8' });
     const parsed = JSON.parse(raw) as unknown;
     if (typeof parsed !== 'object' || parsed === null) return null;
-    const rec = parsed as { version?: unknown; appEncEnabled?: unknown };
+    const rec = parsed as { version?: unknown; appEncEnabled?: unknown; developerOptionsEnabled?: unknown };
     const version = rec.version;
     if (version !== 1) return null;
     return {
       version: 1,
-      appEncEnabled: typeof rec.appEncEnabled === 'boolean' ? rec.appEncEnabled : undefined
+      appEncEnabled: typeof rec.appEncEnabled === 'boolean' ? rec.appEncEnabled : undefined,
+      developerOptionsEnabled:
+        typeof rec.developerOptionsEnabled === 'boolean' ? rec.developerOptionsEnabled : undefined
     };
   } catch {
     return null;
@@ -1822,9 +1837,27 @@ async function writeParaSecurityConfigAtomic(appDataDir: string, cfg: ParaSecuri
   const dir = path.dirname(configPath);
   await fs.mkdir(dir, { recursive: true });
 
+  // 注意：同一个配置文件承载多个开关，写入时需要 merge，避免某个开关持久化时把其它开关覆盖为 false。
+  let existing: ParaSecurityConfigFile | null = null;
+  try {
+    existing = await tryReadParaSecurityConfig(appDataDir);
+  } catch {
+    existing = null;
+  }
+
+  const merged: ParaSecurityConfigFile = {
+    version: 1,
+    appEncEnabled: typeof cfg.appEncEnabled === 'boolean' ? cfg.appEncEnabled : existing?.appEncEnabled,
+    developerOptionsEnabled:
+      typeof cfg.developerOptionsEnabled === 'boolean'
+        ? cfg.developerOptionsEnabled
+        : existing?.developerOptionsEnabled
+  };
+
   const payload: ParaSecurityConfigFile = {
     version: 1,
-    appEncEnabled: Boolean(cfg.appEncEnabled)
+    appEncEnabled: Boolean(merged.appEncEnabled),
+    developerOptionsEnabled: Boolean(merged.developerOptionsEnabled)
   };
 
   const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
@@ -1870,6 +1903,9 @@ let APP_ENC_DESIRED_ENABLED = false;
 let APP_ENC_CONFIG: AppEncConfig = { enabled: false, primaryKid: '', keys: new Map() };
 let APP_ENC_STATUS: AppEncStatus = { desiredEnabled: false, effectiveEnabled: false, error: null };
 
+let DEV_OPTIONS_DESIRED_ENABLED = false;
+let DEV_OPTIONS_STATUS: DevOptionsStatus = { desiredEnabled: false, effectiveEnabled: false, error: null };
+
 function setAppEncDisabledWithError(error: string | null): void {
   APP_ENC_CONFIG = { enabled: false, primaryKid: '', keys: new Map() };
   APP_ENC_STATUS = { desiredEnabled: false, effectiveEnabled: false, error };
@@ -1897,12 +1933,99 @@ async function initAppEncToggleFromDisk(): Promise<void> {
   }
 }
 
+async function initDevOptionsToggleFromDisk(): Promise<void> {
+  const appDataDir = app.getPath('appData');
+  let cfg: ParaSecurityConfigFile | null = null;
+  try {
+    cfg = await tryReadParaSecurityConfig(appDataDir);
+  } catch {
+    cfg = null;
+  }
+  DEV_OPTIONS_DESIRED_ENABLED = Boolean(cfg?.developerOptionsEnabled);
+  // effective 依赖登录态 + 服务器返回 debug_allowed；这里不做网络请求，首次查询 status 时再计算。
+  DEV_OPTIONS_STATUS = {
+    desiredEnabled: DEV_OPTIONS_DESIRED_ENABLED,
+    effectiveEnabled: !app.isPackaged ? DEV_OPTIONS_DESIRED_ENABLED : false,
+    error: null
+  };
+}
+
 function getAppEncStatusForRenderer(): AppEncStatus & { configPath: string } {
   const appDataDir = app.getPath('appData');
   return {
     ...APP_ENC_STATUS,
     configPath: getParaSecurityConfigPath(appDataDir)
   };
+}
+
+async function computeDevOptionsStatus(): Promise<DevOptionsStatus> {
+  const desiredEnabled = Boolean(DEV_OPTIONS_DESIRED_ENABLED);
+  if (!desiredEnabled) {
+    return { desiredEnabled: false, effectiveEnabled: false, error: null };
+  }
+
+  // dev/test：不做任何网络校验，直接按用户期望生效。
+  if (!app.isPackaged) {
+    return { desiredEnabled: true, effectiveEnabled: true, error: null };
+  }
+
+  // production：fail-closed，必须 logged_in 且 debug_allowed。
+  let me: AuthMeResponse;
+  try {
+    me = await readMeFromDiskToken();
+  } catch (err: unknown) {
+    const code = err instanceof Error ? err.message : 'AUTH_ME_FAILED';
+    if (
+      code === 'NOT_LOGGED_IN' ||
+      code === 'UNAUTHORIZED' ||
+      code === 'NETWORK_ERROR' ||
+      code === 'AUTH_ME_FAILED'
+    ) {
+      return { desiredEnabled: true, effectiveEnabled: false, error: code };
+    }
+    return { desiredEnabled: true, effectiveEnabled: false, error: 'AUTH_ME_FAILED' };
+  }
+
+  const debugAllowed = me.debug_allowed;
+  if (!debugAllowed) {
+    return { desiredEnabled: true, effectiveEnabled: false, error: 'DEBUG_NOT_ALLOWED' };
+  }
+
+  return { desiredEnabled: true, effectiveEnabled: true, error: null };
+}
+
+async function getDevOptionsStatusForRenderer(): Promise<DevOptionsStatus & { configPath: string }> {
+  const appDataDir = app.getPath('appData');
+  DEV_OPTIONS_STATUS = await computeDevOptionsStatus();
+  return {
+    ...DEV_OPTIONS_STATUS,
+    configPath: getParaSecurityConfigPath(appDataDir)
+  };
+}
+
+async function setDevOptionsDesiredEnabledAndPersist(
+  enabled: boolean
+): Promise<DevOptionsStatus & { configPath: string }> {
+  const prev = Boolean(DEV_OPTIONS_DESIRED_ENABLED);
+  DEV_OPTIONS_DESIRED_ENABLED = Boolean(enabled);
+
+  const appDataDir = app.getPath('appData');
+  try {
+    await writeParaSecurityConfigAtomic(appDataDir, { version: 1, developerOptionsEnabled: DEV_OPTIONS_DESIRED_ENABLED });
+  } catch {
+    DEV_OPTIONS_DESIRED_ENABLED = prev;
+    DEV_OPTIONS_STATUS = {
+      desiredEnabled: DEV_OPTIONS_DESIRED_ENABLED,
+      effectiveEnabled: !app.isPackaged ? DEV_OPTIONS_DESIRED_ENABLED : false,
+      error: 'DEVOPTIONS_TOGGLE_PERSIST_FAILED'
+    };
+    return {
+      ...DEV_OPTIONS_STATUS,
+      configPath: getParaSecurityConfigPath(appDataDir)
+    };
+  }
+
+  return getDevOptionsStatusForRenderer();
 }
 
 async function setAppEncDesiredEnabledAndPersist(
@@ -3877,6 +4000,17 @@ function registerSecurityIpcHandlers() {
     if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
     return setAppEncDesiredEnabledAndPersist(enabled);
   });
+
+  handleTrustedIpc(IPC_SECURITY_DEVOPTIONS_GET_STATUS, async () => {
+    return getDevOptionsStatusForRenderer();
+  });
+
+  handleTrustedIpc(IPC_SECURITY_DEVOPTIONS_SET_ENABLED, async (_event, payload: unknown) => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const enabled = payload.enabled;
+    if (typeof enabled !== 'boolean') throw new Error('INVALID_PAYLOAD');
+    return setDevOptionsDesiredEnabledAndPersist(enabled);
+  });
 }
 
 function createMainWindow() {
@@ -4069,6 +4203,7 @@ app.whenReady().then(async () => {
   console.log(`[main] app_version=${appVersion}`);
 
   await initAppEncToggleFromDisk();
+  await initDevOptionsToggleFromDisk();
 
   updateManager = await createUpdateManager({
     onState: (state) => {

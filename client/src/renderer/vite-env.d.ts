@@ -73,6 +73,18 @@ export type DesktopApi = {
       error: string | null;
       configPath: string;
     }>;
+    getDevOptionsStatus: () => Promise<{
+      desiredEnabled: boolean;
+      effectiveEnabled: boolean;
+      error: string | null;
+      configPath: string;
+    }>;
+    setDevOptionsEnabled: (enabled: boolean) => Promise<{
+      desiredEnabled: boolean;
+      effectiveEnabled: boolean;
+      error: string | null;
+      configPath: string;
+    }>;
   };
   knowledge: {
     uploadMaterial: (payload: {
@@ -255,9 +267,9 @@ export type DesktopApi = {
     }>;
   };
   auth: {
-    login: (email: string, password: string) => Promise<{ user_id: string | number; email: string }>;
-    register: (email: string, password: string, inviteCode?: string) => Promise<{ user_id: string | number; email: string }>;
-    me: () => Promise<{ user_id: string | number; email: string }>;
+    login: (email: string, password: string) => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+    register: (email: string, password: string, inviteCode?: string) => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+    me: () => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
     logout: () => Promise<void>;
   };
   ws: {

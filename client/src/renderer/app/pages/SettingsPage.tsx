@@ -16,6 +16,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 type DesktopApiExt = NonNullable<Window['desktopApi']>;
 type UpdateState = Awaited<ReturnType<DesktopApiExt['update']['getState']>>;
 type UserDataInfo = Awaited<ReturnType<DesktopApiExt['userData']['getInfo']>>;
+type DevOptionsStatus = Awaited<ReturnType<DesktopApiExt['security']['getDevOptionsStatus']>>;
 
 type VisionPrivacyMode = 'strict' | 'standard';
 
@@ -104,6 +105,50 @@ function toReadableAssistantError(err: unknown): string {
   return '助手操作失败';
 }
 
+type DevOptionsReasonCode = 'NOT_LOGGED_IN' | 'DEBUG_NOT_ALLOWED' | 'NETWORK_ERROR' | 'AUTH_ME_FAILED' | 'OK' | 'DISABLED';
+
+function toDevOptionsReasonCodeFromStatus(s: Pick<DevOptionsStatus, 'desiredEnabled' | 'effectiveEnabled' | 'error'>): DevOptionsReasonCode {
+  const desired = Boolean(s.desiredEnabled);
+  const effective = Boolean(s.effectiveEnabled);
+  const code = typeof s.error === 'string' ? s.error : '';
+
+  if (!desired) return 'DISABLED';
+  if (effective && !code) return 'OK';
+  if (code.includes('NOT_LOGGED_IN')) return 'NOT_LOGGED_IN';
+  if (code.includes('DEBUG_NOT_ALLOWED')) return 'DEBUG_NOT_ALLOWED';
+  if (code.includes('NETWORK_ERROR')) return 'NETWORK_ERROR';
+  if (code.includes('AUTH_ME_FAILED')) return 'AUTH_ME_FAILED';
+  return 'AUTH_ME_FAILED';
+}
+
+function toDevOptionsReasonCodeFromError(err: unknown): DevOptionsReasonCode {
+  const code = getErrorCode(err);
+  if (code.includes('NOT_LOGGED_IN')) return 'NOT_LOGGED_IN';
+  if (code.includes('DEBUG_NOT_ALLOWED')) return 'DEBUG_NOT_ALLOWED';
+  if (code.includes('NETWORK_ERROR')) return 'NETWORK_ERROR';
+  if (code.includes('AUTH_ME_FAILED')) return 'AUTH_ME_FAILED';
+  return 'NETWORK_ERROR';
+}
+
+function toReadableDevOptionsReasonHint(code: DevOptionsReasonCode): string {
+  if (code === 'OK') return '已生效。';
+  if (code === 'DISABLED') return '已关闭（desiredEnabled=false）。';
+  if (code === 'NOT_LOGGED_IN') return '未登录：正式包需要登录后才可能生效。';
+  if (code === 'DEBUG_NOT_ALLOWED') return '未授权：需要后端为当前用户启用 debug_allowed。';
+  if (code === 'NETWORK_ERROR') return '网络错误：无法校验/更新授权状态（fail-closed）。';
+  return '授权校验失败：/auth/me 响应不符合预期（fail-closed）。';
+}
+
+function toReadableDevOptionsUiError(err: unknown): string {
+  const code = getErrorCode(err);
+  if (code.includes('DESKTOP_API_UNAVAILABLE')) return '开发者选项接口不可用（可能不是 Electron 环境或版本过旧）';
+  if (code.includes('NETWORK_ERROR')) return '网络错误';
+  if (code.includes('NOT_LOGGED_IN')) return '请先登录';
+  if (code.includes('DEBUG_NOT_ALLOWED')) return '后端未授权 debug_allowed';
+  if (code.includes('AUTH_ME_FAILED')) return '授权校验失败';
+  return '操作失败';
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
 
@@ -143,6 +188,12 @@ export function SettingsPage() {
   const [assistantSuggestion, setAssistantSuggestion] = React.useState('还没有建议');
   const [assistantCategory, setAssistantCategory] = React.useState('');
   const [assistantUiError, setAssistantUiError] = React.useState('');
+
+  const [devOptionsDesiredEnabled, setDevOptionsDesiredEnabled] = React.useState(false);
+  const [devOptionsEffectiveEnabled, setDevOptionsEffectiveEnabled] = React.useState(false);
+  const [devOptionsReason, setDevOptionsReason] = React.useState<DevOptionsReasonCode>('DISABLED');
+  const [devOptionsBusy, setDevOptionsBusy] = React.useState(false);
+  const [devOptionsUiError, setDevOptionsUiError] = React.useState('');
 
   React.useEffect(() => {
     const api = getDesktopApi();
@@ -230,6 +281,40 @@ export function SettingsPage() {
       })
       .catch(() => {});
   }, []);
+
+  const refreshDevOptionsStatus = React.useCallback(async (opts?: { silent?: boolean }) => {
+    const security = getDesktopApi()?.security;
+    if (!security?.getDevOptionsStatus) {
+      if (!opts?.silent) setDevOptionsUiError('开发者选项接口不可用');
+      setDevOptionsDesiredEnabled(false);
+      setDevOptionsEffectiveEnabled(false);
+      setDevOptionsReason('NETWORK_ERROR');
+      return;
+    }
+
+    try {
+      const s = await security.getDevOptionsStatus();
+      const desiredEnabled = Boolean(s?.desiredEnabled);
+      const effectiveEnabled = Boolean(s?.effectiveEnabled);
+      const reason = toDevOptionsReasonCodeFromStatus({
+        desiredEnabled,
+        effectiveEnabled,
+        error: typeof s?.error === 'string' ? s.error : null
+      });
+      setDevOptionsDesiredEnabled(desiredEnabled);
+      setDevOptionsEffectiveEnabled(effectiveEnabled);
+      setDevOptionsReason(reason);
+      if (!opts?.silent) setDevOptionsUiError('');
+    } catch (err: unknown) {
+      if (!opts?.silent) setDevOptionsUiError(toReadableDevOptionsUiError(err));
+      setDevOptionsEffectiveEnabled(false);
+      setDevOptionsReason(toDevOptionsReasonCodeFromError(err));
+    }
+  }, []);
+
+  React.useEffect(() => {
+    void refreshDevOptionsStatus({ silent: true });
+  }, [refreshDevOptionsStatus]);
 
   function onThemePick(pref: ThemePreference) {
     setThemePreference(pref);
@@ -453,6 +538,44 @@ export function SettingsPage() {
       setAssistantIdleEnabled(nextEnabled);
     } catch (err: unknown) {
       setAssistantUiError(toReadableAssistantError(err));
+    }
+  }
+
+  async function onDevOptionsToggle() {
+    if (devOptionsBusy) return;
+    setDevOptionsUiError('');
+
+    const security = getDesktopApi()?.security;
+    if (!security?.setDevOptionsEnabled) {
+      setDevOptionsUiError('开发者选项开关接口不可用');
+      setDevOptionsDesiredEnabled(false);
+      setDevOptionsEffectiveEnabled(false);
+      setDevOptionsReason('NETWORK_ERROR');
+      return;
+    }
+
+    const nextEnabled = !devOptionsDesiredEnabled;
+    setDevOptionsBusy(true);
+    try {
+      const s = await security.setDevOptionsEnabled(nextEnabled);
+      const desiredEnabled = Boolean(s?.desiredEnabled);
+      const effectiveEnabled = Boolean(s?.effectiveEnabled);
+      const reason = toDevOptionsReasonCodeFromStatus({
+        desiredEnabled,
+        effectiveEnabled,
+        error: typeof s?.error === 'string' ? s.error : null
+      });
+      setDevOptionsDesiredEnabled(desiredEnabled);
+      setDevOptionsEffectiveEnabled(effectiveEnabled);
+      setDevOptionsReason(reason);
+      await refreshDevOptionsStatus({ silent: true });
+    } catch (err: unknown) {
+      setDevOptionsUiError(toReadableDevOptionsUiError(err));
+      setDevOptionsEffectiveEnabled(false);
+      setDevOptionsReason(toDevOptionsReasonCodeFromError(err));
+      await refreshDevOptionsStatus({ silent: true });
+    } finally {
+      setDevOptionsBusy(false);
     }
   }
 
@@ -738,6 +861,48 @@ export function SettingsPage() {
                 打开 /knowledge
               </Button>
             </div>
+          </Card>
+
+          <Card>
+            <h2>开发者选项（/dev）</h2>
+            <div style={{ color: 'var(--muted)', fontSize: 13 }}>
+              提示：正式包需要登录且后端授权 <code>debug_allowed</code> 才会生效（默认 fail-closed）。
+            </div>
+
+            <div style={{ height: 12 }} />
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Button
+                type="button"
+                data-testid={TEST_IDS.devOptionsToggle}
+                aria-pressed={devOptionsDesiredEnabled}
+                onClick={() => void onDevOptionsToggle()}
+                variant={devOptionsDesiredEnabled ? 'primary' : 'secondary'}
+                loading={devOptionsBusy}
+              >
+                {devOptionsDesiredEnabled ? 'desired：已开启（点击关闭）' : 'desired：默认关闭（点击开启）'}
+              </Button>
+              <Button variant="secondary" onClick={() => void refreshDevOptionsStatus()} disabled={devOptionsBusy}>
+                刷新
+              </Button>
+            </div>
+
+            <div style={{ height: 10 }} />
+            <div style={{ display: 'grid', gap: 6 }}>
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>desiredEnabled：{String(devOptionsDesiredEnabled)}</div>
+              <div style={{ color: 'var(--muted)', fontSize: 13 }} data-testid={TEST_IDS.devOptionsEffective}>
+                effectiveEnabled：{String(devOptionsEffectiveEnabled)}
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 13 }} data-testid={TEST_IDS.devOptionsReason}>
+                reason：{devOptionsReason}
+              </div>
+              <div style={{ color: 'var(--muted)', fontSize: 13 }}>说明：{toReadableDevOptionsReasonHint(devOptionsReason)}</div>
+            </div>
+
+            {devOptionsUiError ? (
+              <div className="ui-field__error" role="alert" style={{ marginTop: 10 }}>
+                {devOptionsUiError}
+              </div>
+            ) : null}
           </Card>
 
           <Card data-testid={TEST_IDS.byokCard}>
