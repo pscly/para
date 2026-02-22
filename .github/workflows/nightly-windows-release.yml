@@ -1,0 +1,119 @@
+name: nightly-windows-release
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 2 * * *'
+
+permissions:
+  contents: read
+
+jobs:
+  windows-nsis-nightly:
+    name: windows-nsis-nightly
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: client/package-lock.json
+
+      - name: Install client dependencies (npm ci)
+        run: npm -C client ci
+
+      - name: Package (Windows NSIS)
+        run: npm -C client run package:win
+
+      - name: Verify fuses (packaged binary)
+        run: npm -C client run verify:fuses
+
+      - name: Compute nightly tag
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $sha = '${{ github.sha }}'
+          $short = $sha.Substring(0, 7)
+          $date = (Get-Date).ToString('yyyyMMdd')
+          $tag = "nightly-$date-$short"
+
+          "tag_name=$tag" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Resolve installer + sha256
+        id: assets
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $tag = "${{ steps.meta.outputs.tag_name }}"
+          if (-not $tag) {
+            throw "tag_name output missing"
+          }
+
+          $distRoot = Join-Path $PWD 'client/dist-electron'
+          if (!(Test-Path $distRoot)) {
+            throw "dist directory not found: $distRoot"
+          }
+
+          $exeFiles = Get-ChildItem -Path $distRoot -Recurse -File -Filter '*.exe' |
+            Where-Object {
+              $_.FullName -notmatch '(?i)\\win-unpacked\\' -and
+              $_.Name -notmatch '(?i)unpacked'
+            }
+
+          if (-not $exeFiles -or $exeFiles.Count -lt 1) {
+            throw "No .exe files found under $distRoot (expected NSIS installer)"
+          }
+
+          $installer = $exeFiles |
+            Where-Object { $_.Name -match '(?i)setup' } |
+            Sort-Object Length -Descending |
+            Select-Object -First 1
+
+          if (-not $installer) {
+            $installer = $exeFiles | Sort-Object Length -Descending | Select-Object -First 1
+          }
+
+          $normalizedName = "Para.Desktop.Setup.$tag.exe"
+          $normalizedPath = Join-Path $installer.Directory.FullName $normalizedName
+          if ($installer.Name -ne $normalizedName) {
+            Copy-Item -LiteralPath $installer.FullName -Destination $normalizedPath -Force
+            $installer = Get-Item -LiteralPath $normalizedPath
+          }
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $installer.FullName).Hash.ToLower()
+          $shaPath = "$($installer.FullName).sha256"
+          "$hash  $($installer.Name)" | Out-File -FilePath $shaPath -Encoding ascii
+
+          $workspace = $env:GITHUB_WORKSPACE.TrimEnd('\\') + '\\'
+          $installerRel = $installer.FullName.Replace($workspace, '')
+          $shaRel = $shaPath.Replace($workspace, '')
+
+          "installer_path=$installerRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+          "sha256_path=$shaRel" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
+
+      - name: Publish GitHub Release (prerelease)
+        uses: softprops/action-gh-release@a06a81a03ee405af7f2048a818ed3f03bbf83c7b
+        with:
+          tag_name: ${{ steps.meta.outputs.tag_name }}
+          name: ${{ steps.meta.outputs.tag_name }}
+          prerelease: true
+          generate_release_notes: false
+          body: |
+            Automated nightly Windows NSIS installer from main.
+
+            Commit: ${{ github.sha }}
+          files: |
+            ${{ steps.assets.outputs.installer_path }}
+            ${{ steps.assets.outputs.sha256_path }}
