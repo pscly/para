@@ -3,6 +3,11 @@
   "private": true,
   "version": "0.1.10",
   "description": "Electron + React + TS client scaffold",
+  "homepage": "https://para.pscly.cc",
+  "author": {
+    "name": "pscly",
+    "email": "pscly@outlook.com"
+  },
   "main": "dist/main/index.js",
   "scripts": {
     "dev": "concurrently -k -n renderer,electron:watch,electron:run -c auto \"npm:dev:renderer\" \"npm:dev:electron:watch\" \"npm:dev:electron:run\"",
@@ -78,7 +83,8 @@
         "AppImage",
         "deb",
         "rpm"
-      ]
+      ],
+      "maintainer": "pscly <pscly@outlook.com>"
     },
     "mac": {
       "target": [
