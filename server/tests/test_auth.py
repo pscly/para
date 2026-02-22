@@ -5,10 +5,11 @@ import uuid
 from fastapi.testclient import TestClient
 from typing import cast
 
-from sqlalchemy import text
+from sqlalchemy import select, text
 
 from app.db.base import Base
-from app.db.session import engine
+from app.db.models import User
+from app.db.session import SessionLocal, engine
 from app.main import app
 
 
@@ -49,6 +50,12 @@ def _refresh(client: TestClient, refresh_token: str) -> TokenPair:
     return data
 
 
+def test_me_unauthenticated_returns_401() -> None:
+    with TestClient(app) as client:
+        resp = client.get("/api/v1/auth/me")
+        assert resp.status_code == 401, resp.text
+
+
 def test_register_success_returns_tokens_and_me_works() -> None:
     email = _random_email()
     password = "password123"
@@ -61,10 +68,32 @@ def test_register_success_returns_tokens_and_me_works() -> None:
             headers={"Authorization": f"Bearer {tokens['access_token']}"},
         )
         assert me.status_code == 200, me.text
-        body = cast(dict[str, str], me.json())
+        body = cast(dict[str, object], me.json())
         assert body["email"] == email
         assert isinstance(body["user_id"], str)
         assert body["user_id"]
+        assert body.get("debug_allowed") is False
+
+
+def test_me_returns_debug_allowed_true_when_user_flag_set() -> None:
+    email = _random_email()
+    password = "password123"
+
+    with TestClient(app) as client:
+        tokens = _register(client, email=email, password=password)
+
+        with SessionLocal() as db:
+            user = db.execute(select(User).where(User.email == email)).scalar_one()
+            user.debug_allowed = True
+            db.commit()
+
+        me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {tokens['access_token']}"},
+        )
+        assert me.status_code == 200, me.text
+        body = cast(dict[str, object], me.json())
+        assert body.get("debug_allowed") is True
 
 
 def test_duplicate_register_returns_409() -> None:

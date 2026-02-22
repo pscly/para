@@ -23,6 +23,7 @@ def _ensure_test_schema() -> None:
     Base.metadata.create_all(bind=engine)
 
     alter_sql = [
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS debug_allowed BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE ugc_assets ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP NULL",
         "ALTER TABLE ugc_assets ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(36) NULL",
         "ALTER TABLE ugc_assets ADD COLUMN IF NOT EXISTS review_note TEXT NULL",

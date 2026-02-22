@@ -24,6 +24,7 @@ from app.api.v1.admin_config import router as admin_config_router
 from app.api.v1.admin_llm import router as admin_llm_router
 from app.api.v1.admin_metrics import router as admin_metrics_router
 from app.api.v1.admin_invites import router as admin_invites_router
+from app.api.v1.admin_users import router as admin_users_router
 from app.api.v1.feature_flags import router as feature_flags_router
 
 
@@ -47,4 +48,5 @@ api_router.include_router(admin_config_router)
 api_router.include_router(admin_llm_router)
 api_router.include_router(admin_metrics_router)
 api_router.include_router(admin_invites_router)
+api_router.include_router(admin_users_router)
 api_router.include_router(feature_flags_router)

@@ -22,6 +22,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -92,6 +93,10 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, nullable=False
+    )
+
+    debug_allowed: Mapped[bool] = mapped_column(
+        Boolean(), nullable=False, default=False, server_default=false()
     )
 
     devices: Mapped[list["Device"]] = relationship(

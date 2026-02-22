@@ -92,6 +92,7 @@ class PasswordResetConfirmResponse(BaseModel):
 class MeResponse(BaseModel):
     user_id: str
     email: str
+    debug_allowed: bool
 
 
 def _unauthorized(detail: str = "Unauthorized") -> NoReturn:
@@ -512,7 +513,7 @@ async def me(
     user = db.get(User, user_id)
     if user is None:
         _unauthorized()
-    return MeResponse(user_id=user.id, email=user.email)
+    return MeResponse(user_id=user.id, email=user.email, debug_allowed=bool(user.debug_allowed))
 
 
 @router.post(
