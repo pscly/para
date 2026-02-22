@@ -1,0 +1,1 @@
+{"status":"ok","dependencies":{"db":{"status":"ok","latency_ms":33,"detail":null,"mode":null},"redis":{"status":"ok","latency_ms":1,"detail":null,"mode":null},"pgvector":{"status":"ok","latency_ms":1,"detail":null,"mode":null},"worker":{"status":"ok","latency_ms":2138,"detail":null,"mode":"remote"}}}

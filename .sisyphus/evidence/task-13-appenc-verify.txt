@@ -1,0 +1,31 @@
+# Task 13 - AppEnc fail-closed verify (no secrets)
+
+目标：在不提供任何密钥/凭据的前提下，证明 AppEnc middleware 已启用且对非法 envelope 走 fail-closed。
+
+## Health
+
+```bash
+curl -fsS https://para.pscly.cc/api/v1/health
+```
+
+期望：返回 JSON，且 `status` 为 `ok`（或按实际定义为 `degraded` 但可用）。
+
+## AppEnc 最小验证（bad envelope）
+
+说明：服务端仅在请求头带 `X-Para-Enc: v1` 时进入 AppEnc middleware；若 body 不是合法 envelope，将返回稳定错误 `PARA_APPENC_BAD_ENVELOPE`（证明 middleware 在工作且拒绝解密失败的请求）。
+
+```bash
+curl -sS -i -X POST https://para.pscly.cc/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Para-Enc: v1' \
+  --data '{"hello":"world"}'
+```
+
+实际响应（节选）：
+
+```
+HTTP/2 400
+content-type: application/json
+
+{"detail":"PARA_APPENC_BAD_ENVELOPE"}
+```

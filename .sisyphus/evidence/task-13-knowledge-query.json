@@ -1,34 +1,34 @@
 {
   "task": 13,
-  "save_id": "54566b03-e236-4151-a9e3-ade89cd95c8f",
+  "save_id": "32d033bb-8fef-430d-84f4-ad6f02579546",
   "upload": {
     "material": {
-      "id": "ffb8d0ab-78f5-4719-aac2-5750f845d091",
-      "save_id": "54566b03-e236-4151-a9e3-ade89cd95c8f",
+      "id": "8ed3b22e-0efe-4457-bf3c-8365a0c1754e",
+      "save_id": "32d033bb-8fef-430d-84f4-ad6f02579546",
       "filename": "note.md",
       "content_type": "text/markdown",
       "status": "pending",
       "error": null,
-      "created_at": "2026-02-21T12:30:14.700091",
-      "updated_at": "2026-02-21T12:30:14.703454"
+      "created_at": "2026-02-21T16:36:03.227110",
+      "updated_at": "2026-02-21T16:36:03.231982"
     }
   },
   "status": {
-    "id": "ffb8d0ab-78f5-4719-aac2-5750f845d091",
-    "save_id": "54566b03-e236-4151-a9e3-ade89cd95c8f",
+    "id": "8ed3b22e-0efe-4457-bf3c-8365a0c1754e",
+    "save_id": "32d033bb-8fef-430d-84f4-ad6f02579546",
     "filename": "note.md",
     "content_type": "text/markdown",
     "status": "indexed",
     "error": null,
-    "created_at": "2026-02-21T12:30:14.700091",
-    "updated_at": "2026-02-21T12:30:14.714488"
+    "created_at": "2026-02-21T16:36:03.227110",
+    "updated_at": "2026-02-21T16:36:03.243563"
   },
   "query": {
     "answer": "# Notes\n\nThis line is important: PARA_KNOWLEDGE_MAGIC_SENTENCE.\n\nMore text.",
     "citations": [
       {
-        "chunk_id": "0f9b13e3-9ee4-48f3-b717-088528cceb8c",
-        "material_id": "ffb8d0ab-78f5-4719-aac2-5750f845d091",
+        "chunk_id": "cbc275ca-ec4a-4369-b115-da4a2ccf659c",
+        "material_id": "8ed3b22e-0efe-4457-bf3c-8365a0c1754e",
         "chunk_index": 0,
         "distance": 0.6437214011719172,
         "score": 0.6083756038505274,

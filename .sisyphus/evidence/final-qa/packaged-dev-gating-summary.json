@@ -1,0 +1,13 @@
+{
+  "packagedExecutablePath": "/root/1codes/1para/client/dist-electron/linux-unpacked/ai-girlfriend-client",
+  "linuxUnpackedDir": "/root/1codes/1para/client/dist-electron/linux-unpacked",
+  "screenshots": {
+    "settingsDenied": "/root/1codes/1para/.sisyphus/evidence/final-qa/packaged-settings-dev-options-denied.png",
+    "diagnosticsRedirected": "/root/1codes/1para/.sisyphus/evidence/final-qa/packaged-dev-diagnostics-redirected-to-settings.png"
+  },
+  "observed": {
+    "devOptionsEffectiveText": "effectiveEnabled：false",
+    "devOptionsReasonText": "reason：NOT_LOGGED_IN",
+    "finalUrlAfterDiagnostics": "file:///root/1codes/1para/client/dist-electron/linux-unpacked/resources/app.asar/dist/renderer/index.html#/settings"
+  }
+}

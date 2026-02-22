@@ -1,6 +1,6 @@
 [task-20] updates rollback e2e (fake updater)
 platform=linux
-userDataDir=/root/1codes/1para/client/playwright-results/userData-updates-W34LDV
+userDataDir=/root/1codes/1para/client/playwright-results/userData-updates-9jxp8v
 note=fake updater only; production uses electron-updater
 ---
 step=publish: remote=0.0.2

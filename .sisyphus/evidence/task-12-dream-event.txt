@@ -1,14 +1,14 @@
 task-12 dream entry evidence
-save_id=ca027646-5522-4897-9825-42974166a6da
+save_id=37e0ad27-88fa-4914-8364-8f0ab9cd2b19
 trigger_status=200
-trigger_body={'task_id': 'bf5cfb17-d9d0-44e8-925f-d6fbdbe089d2', 'dream_entry_id': '5bf4d535-a0b3-4471-81c4-a4b73bf50174'}
-db_entry_id=5bf4d535-a0b3-4471-81c4-a4b73bf50174
+trigger_body={'task_id': 'ccc5f260-ad10-4e05-8d53-7ed332e0ed80', 'dream_entry_id': '023e53d5-ac6b-479e-b13c-5c066ba9c722'}
+db_entry_id=023e53d5-ac6b-479e-b13c-5c066ba9c722
 db_entry_kind=dream
-db_entry_created_at=2026-02-21 12:30:14.369982
+db_entry_created_at=2026-02-21 16:36:02.889831
 ws_frame_type=TIMELINE_EVENT
 ws_frame_seq=1
-ws_frame_server_event_id=d54379de-42c3-43cc-b522-a6e7910d6dd5:ca027646-5522-4897-9825-42974166a6da:1
-ws_frame_payload={'event': 'DREAM_ENTRY_CREATED', 'dream_entry': {'id': '5bf4d535-a0b3-4471-81c4-a4b73bf50174', 'kind': 'dream', 'content': 'I dreamed about apples', 'save_id': 'ca027646-5522-4897-9825-42974166a6da', 'created_at': '2026-02-21T12:30:14.369982Z'}}
+ws_frame_server_event_id=a1d18121-e350-43fa-8424-a1c3837cf317:37e0ad27-88fa-4914-8364-8f0ab9cd2b19:1
+ws_frame_payload={'event': 'DREAM_ENTRY_CREATED', 'dream_entry': {'id': '023e53d5-ac6b-479e-b13c-5c066ba9c722', 'kind': 'dream', 'content': 'I dreamed about apples', 'save_id': '37e0ad27-88fa-4914-8364-8f0ab9cd2b19', 'created_at': '2026-02-21T16:36:02.889831Z'}}
 assert_db_written=True
 assert_ws_replay_received=True
 assert_seq_ge_1=True
