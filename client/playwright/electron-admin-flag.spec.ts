@@ -84,7 +84,7 @@ async function startAdminFlagStubServer(opts: {
     const method = req.method ?? 'GET';
 
     if (method === 'GET' && (url === '/api/v1/auth/me' || url.startsWith('/api/v1/auth/me?'))) {
-      json(res, 200, { user_id: 'e2e', email: 'e2e@local' });
+      json(res, 200, { user_id: 'e2e', email: 'e2e@local', debug_allowed: false });
       return;
     }
 

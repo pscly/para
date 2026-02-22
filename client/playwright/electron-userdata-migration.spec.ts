@@ -157,6 +157,9 @@ test('Task 14: migrate userData dir -> write config -> relaunch uses new userDat
 
       try {
         const page2 = await getDebugPanelPage(app2);
+        await page2.evaluate(() => {
+          window.location.hash = '#/settings';
+        });
         await expect(page2.getByTestId(TEST_IDS.userDataCard)).toBeVisible();
 
         const info = await page2.evaluate(async () => {

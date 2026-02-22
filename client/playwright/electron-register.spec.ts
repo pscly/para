@@ -19,16 +19,15 @@ type StubServer = {
 };
 
 async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
-  const timeoutMs = 5_000;
-  const pollIntervalMs = 100;
-  const deadline = Date.now() + timeoutMs;
+  await expect.poll(() => app.windows().length, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect
+    .poll(() => app.windows().length, { timeout: 5_000 })
+    .toBeGreaterThanOrEqual(2)
+    .catch(() => {
+      // 某些环境可能只创建 1 个窗口；允许降级。
+    });
 
-  let pages: Page[] = app.windows();
-  while (pages.length < 2 && Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, pollIntervalMs));
-    pages = app.windows();
-  }
-
+  const pages: Page[] = app.windows();
   if (pages.length === 0) throw new Error('E2E_NO_ELECTRON_WINDOWS');
 
   let bestPage: Page = pages[0]!;
@@ -57,6 +56,12 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
   }
 
   return bestPage;
+}
+
+function parseEffectiveEnabled(text: string): boolean | null {
+  const m = text.match(/effectiveEnabled[：:=]\s*(true|false)/i);
+  if (!m) return null;
+  return m[1]!.toLowerCase() === 'true';
 }
 
 async function startAuthStubServer(): Promise<StubServer> {
@@ -172,7 +177,7 @@ async function startAuthStubServer(): Promise<StubServer> {
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ user_id: u.user_id, email }));
+      res.end(JSON.stringify({ user_id: u.user_id, email, debug_allowed: false }));
       return;
     }
 
@@ -202,8 +207,8 @@ function getEvidencePath(filename: string): string {
   return path.resolve(process.cwd(), '..', '.sisyphus', 'evidence', filename);
 }
 
-async function withTempUserDataDir<T>(fn: (userDataDir: string) => Promise<T>): Promise<T> {
-  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-userdata-'));
+async function withTempDir<T>(prefix: string, fn: (dir: string) => Promise<T>): Promise<T> {
+  const dir = await fs.promises.mkdtemp(path.join(os.tmpdir(), prefix));
   try {
     return await fn(dir);
   } finally {
@@ -214,31 +219,70 @@ async function withTempUserDataDir<T>(fn: (userDataDir: string) => Promise<T>): 
   }
 }
 
+async function withTempProfile<T>(
+  fn: (args: { userDataDir: string; xdgConfigHome: string }) => Promise<T>
+): Promise<T> {
+  return withTempDir('para-e2e-userdata-', async (userDataDir) => {
+    return withTempDir('para-e2e-xdg-config-', async (xdgConfigHome) => {
+      return fn({ userDataDir, xdgConfigHome });
+    });
+  });
+}
+
+async function navigateHashAndWait(page: Page, hash: string): Promise<void> {
+  await page.evaluate(
+    (h) => {
+      window.location.hash = h;
+    },
+    hash
+  );
+  await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5_000 }).toBe(hash);
+}
+
+async function enableDevOptionsFromSettings(page: Page): Promise<void> {
+  await navigateHashAndWait(page, '#/settings');
+
+  const toggle = page.getByTestId(TEST_IDS.devOptionsToggle);
+  await expect(toggle).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId(TEST_IDS.devOptionsReason)).toBeVisible({ timeout: 15_000 });
+
+  const pressed = await toggle.getAttribute('aria-pressed');
+  const alreadyEnabled = pressed === 'true';
+  if (!alreadyEnabled) {
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true', { timeout: 15_000 });
+  }
+
+  const effective = page.getByTestId(TEST_IDS.devOptionsEffective);
+  await expect
+    .poll(async () => parseEffectiveEnabled((await effective.textContent()) ?? ''), { timeout: 15_000 })
+    .toBe(true);
+}
+
 test('Electron register: invite required', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
 
   const stub = await startAuthStubServer();
 
-  await withTempUserDataDir(async (userDataDir) => {
+  await withTempProfile(async ({ userDataDir, xdgConfigHome }) => {
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
       args: [mainEntry],
       env: {
         ...process.env,
         NODE_ENV: 'test',
-        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
-        PARA_USER_DATA_DIR: userDataDir
+        PARA_USER_DATA_DIR: userDataDir,
+        XDG_CONFIG_HOME: xdgConfigHome
       }
     });
 
     try {
       const page = await getDebugPanelPage(app);
 
-      await page.evaluate(() => {
-        window.location.hash = '#/dev/register';
-      });
+      await enableDevOptionsFromSettings(page);
+      await navigateHashAndWait(page, '#/dev/register');
       await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
 
       const email = 'register-required@example.com';
@@ -271,25 +315,24 @@ test('Electron register: success + invite exhausted', async () => {
   const stub = await startAuthStubServer();
   const inviteOnce = 'INVITE-ONCE';
 
-  await withTempUserDataDir(async (userDataDir) => {
+  await withTempProfile(async ({ userDataDir, xdgConfigHome }) => {
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
       args: [mainEntry],
       env: {
         ...process.env,
         NODE_ENV: 'test',
-        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
-        PARA_USER_DATA_DIR: userDataDir
+        PARA_USER_DATA_DIR: userDataDir,
+        XDG_CONFIG_HOME: xdgConfigHome
       }
     });
 
     try {
       const page = await getDebugPanelPage(app);
 
-      await page.evaluate(() => {
-        window.location.hash = '#/dev/register';
-      });
+      await enableDevOptionsFromSettings(page);
+      await navigateHashAndWait(page, '#/dev/register');
       await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
 
       const email = 'register-success@example.com';
@@ -316,25 +359,24 @@ test('Electron register: success + invite exhausted', async () => {
     }
   });
 
-  await withTempUserDataDir(async (userDataDir) => {
+  await withTempProfile(async ({ userDataDir, xdgConfigHome }) => {
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
       args: [mainEntry],
       env: {
         ...process.env,
         NODE_ENV: 'test',
-        PARA_DEV_MODE: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
-        PARA_USER_DATA_DIR: userDataDir
+        PARA_USER_DATA_DIR: userDataDir,
+        XDG_CONFIG_HOME: xdgConfigHome
       }
     });
 
     try {
       const page = await getDebugPanelPage(app);
 
-      await page.evaluate(() => {
-        window.location.hash = '#/dev/register';
-      });
+      await enableDevOptionsFromSettings(page);
+      await navigateHashAndWait(page, '#/dev/register');
       await expect(page.getByTestId(TEST_IDS.registerEmail)).toBeVisible();
 
       const email = 'register-exhausted@example.com';

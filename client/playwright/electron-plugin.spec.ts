@@ -48,7 +48,7 @@ async function startPluginsStubServer(plugin: ApprovedPlugin): Promise<StubServe
 
     if (method === 'GET' && (url === '/api/v1/auth/me' || url.startsWith('/api/v1/auth/me?'))) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ user_id: 'e2e', email: 'e2e@local' }));
+      res.end(JSON.stringify({ user_id: 'e2e', email: 'e2e@local', debug_allowed: false }));
       return;
     }
 
@@ -227,6 +227,43 @@ async function navigateToPluginsPage(page: Page): Promise<void> {
   await expect(page.getByTestId(TEST_IDS.pluginsCard)).toBeVisible({ timeout: 15_000 });
 }
 
+async function pollPluginsStatus(
+  page: Page,
+): Promise<{ enabled: boolean; running: boolean; installedKey: string | null; menuCount: number; lastError: string | null }> {
+  const v = await page.evaluate(async () => {
+    const api = (window as unknown as { desktopApi?: unknown }).desktopApi as
+      | {
+          plugins?: {
+            getStatus?: () => Promise<{
+              enabled?: unknown;
+              running?: unknown;
+              installed?: { id?: unknown; version?: unknown } | null;
+              menuItems?: unknown;
+              lastError?: unknown;
+            }>;
+          };
+        }
+      | undefined;
+    if (!api?.plugins?.getStatus) {
+      return { enabled: false, running: false, installedKey: null, menuCount: 0, lastError: 'NO_DESKTOP_API' };
+    }
+
+    const st = await api.plugins.getStatus();
+    const enabled = Boolean(st?.enabled);
+    const running = Boolean(st?.running);
+    const installed = st?.installed ?? null;
+    const installedId = installed && typeof installed.id === 'string' ? installed.id : '';
+    const installedVersion = installed && typeof installed.version === 'string' ? installed.version : '';
+    const installedKey = installedId && installedVersion ? `${installedId}@@${installedVersion}` : null;
+
+    const menuItems = st?.menuItems;
+    const menuCount = Array.isArray(menuItems) ? menuItems.length : 0;
+    const lastError = typeof st?.lastError === 'string' ? st.lastError : null;
+    return { enabled, running, installedKey, menuCount, lastError };
+  });
+  return v as { enabled: boolean; running: boolean; installedKey: string | null; menuCount: number; lastError: string | null };
+}
+
 async function ensurePetWindowNotClickThrough(app: ElectronApplication): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => {
     const wins = BrowserWindow.getAllWindows();
@@ -294,6 +331,8 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
     await withTempUserDataDir(async (userDataDir) => {
       await writeStubAuthTokens(userDataDir);
 
+      const xdgConfigHome = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-xdg-config-'));
+
       const app = await electron.launch({
         executablePath: electronPath as unknown as string,
         args: [mainEntry],
@@ -301,7 +340,8 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
           ...process.env,
           NODE_ENV: 'test',
           PARA_SERVER_BASE_URL: stub.baseUrl,
-          PARA_USER_DATA_DIR: userDataDir
+          PARA_USER_DATA_DIR: userDataDir,
+          XDG_CONFIG_HOME: xdgConfigHome
         }
       });
 
@@ -363,6 +403,27 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
           await expect(install).toBeVisible();
           await install.click();
 
+          await expect(install).toBeEnabled({ timeout: 30_000 });
+
+          await expect
+            .poll(
+              async () => {
+                const st = await pollPluginsStatus(debugPage);
+                return Boolean(
+                  st.enabled && st.installedKey === pluginKey && st.menuCount > 0 && st.lastError === null,
+                );
+              },
+              { timeout: 30_000 },
+            )
+            .toBe(true);
+
+          await expect(refresh).toBeEnabled({ timeout: 30_000 });
+          await refresh.click();
+
+          await expect
+            .poll(async () => debugPage.getByTestId(TEST_IDS.pluginsMenuItem).count(), { timeout: 30_000 })
+            .toBeGreaterThan(0);
+
           const firstMenuItem = debugPage.getByTestId(TEST_IDS.pluginsMenuItem).first();
           await expect(firstMenuItem).toBeVisible({ timeout: 15_000 });
         });
@@ -391,6 +452,11 @@ test('Task 21: plugin default-off + enable + install + pet bubble (with evidence
         expect(fs.existsSync(evidencePath)).toBeTruthy();
       } finally {
         await app.close();
+
+        try {
+          await fs.promises.rm(xdgConfigHome, { recursive: true, force: true });
+        } catch {
+        }
       }
     });
   } finally {

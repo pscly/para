@@ -64,6 +64,11 @@ test('Electron theme + focus-visible smoke', async () => {
 
   const page = await getDebugPanelPage(app);
 
+  await page.evaluate(() => {
+    window.location.hash = '#/login';
+  });
+  await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible({ timeout: 15_000 });
+
   await page.evaluate(() => document.documentElement.setAttribute('data-theme', 'dark'));
   await page.mouse.click(10, 10);
   await page.keyboard.press('Tab');

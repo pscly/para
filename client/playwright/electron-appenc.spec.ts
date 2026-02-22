@@ -310,7 +310,7 @@ async function startAuthStubServer(args: {
       }
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ user_id: 1, email }));
+      res.end(JSON.stringify({ user_id: 1, email, debug_allowed: false }));
       return;
     }
 
@@ -387,6 +387,11 @@ test('Electron appenc: toggle + encrypted req/resp', async () => {
 
       const page = await getDebugPanelPage(app);
 
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible({ timeout: 15_000 });
+
       const email = 'user@example.com';
 
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
@@ -398,10 +403,36 @@ test('Electron appenc: toggle + encrypted req/resp', async () => {
       expect(c1.plainLoginCount).toBe(1);
       expect(c1.encLoginCount).toBe(0);
 
+      await page.evaluate(() => {
+        window.location.hash = '#/settings';
+      });
+      const devToggle = page.getByTestId(TEST_IDS.devOptionsToggle);
+      await expect(devToggle).toBeVisible({ timeout: 15_000 });
+
+      const devPressed = await devToggle.getAttribute('aria-pressed');
+      const devAlreadyEnabled = devPressed === 'true';
+      if (!devAlreadyEnabled) {
+        await devToggle.click();
+      }
+
+      const devEffective = page.getByTestId(TEST_IDS.devOptionsEffective);
+      await expect
+        .poll(async () => (await devEffective.textContent()) ?? '', { timeout: 15_000 })
+        .toContain('effectiveEnabled：true');
+
+      await page.evaluate(() => {
+        window.location.hash = '#/dev/debug';
+      });
+
       const toggle = page.getByTestId(TEST_IDS.securityAppEncToggle);
+      await expect(toggle).toBeVisible({ timeout: 15_000 });
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-pressed', 'true');
 
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible({ timeout: 15_000 });
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
       await page.getByTestId(TEST_IDS.loginPassword).fill('correct-password');
       await page.getByTestId(TEST_IDS.loginSubmit).click();
@@ -411,9 +442,17 @@ test('Electron appenc: toggle + encrypted req/resp', async () => {
       expect(c2.encLoginCount).toBe(1);
       expect(c2.sawEncHeader).toBe(true);
 
+      await page.evaluate(() => {
+        window.location.hash = '#/dev/debug';
+      });
+      await expect(toggle).toBeVisible({ timeout: 15_000 });
       await toggle.click();
       await expect(toggle).toHaveAttribute('aria-pressed', 'false');
 
+      await page.evaluate(() => {
+        window.location.hash = '#/login';
+      });
+      await expect(page.getByTestId(TEST_IDS.loginEmail)).toBeVisible({ timeout: 15_000 });
       await page.getByTestId(TEST_IDS.loginEmail).fill(email);
       await page.getByTestId(TEST_IDS.loginPassword).fill('correct-password');
       await page.getByTestId(TEST_IDS.loginSubmit).click();

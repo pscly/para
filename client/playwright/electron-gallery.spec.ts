@@ -249,6 +249,38 @@ async function writeStubAuthTokens(userDataDir: string): Promise<void> {
   await fs.promises.writeFile(filePath, JSON.stringify(stored), { encoding: 'utf8' });
 }
 
+async function navigateHashAndWait(page: Page, hash: string): Promise<void> {
+  await page.evaluate(
+    (h) => {
+      window.location.hash = h;
+    },
+    hash
+  );
+  await expect.poll(() => page.evaluate(() => window.location.hash), { timeout: 5_000 }).toBe(hash);
+}
+
+async function enableDevOptionsFromSettings(page: Page): Promise<void> {
+  await navigateHashAndWait(page, '#/settings');
+  const toggle = page.getByTestId(TEST_IDS.devOptionsToggle);
+  await expect(toggle).toBeVisible({ timeout: 15_000 });
+
+  const pressed = await toggle.getAttribute('aria-pressed');
+  const alreadyEnabled = pressed === 'true';
+  if (!alreadyEnabled) {
+    await toggle.click();
+  }
+
+  const effective = page.getByTestId(TEST_IDS.devOptionsEffective);
+  await expect
+    .poll(async () => (await effective.textContent()) ?? '', { timeout: 15_000 })
+    .toContain('effectiveEnabled：true');
+}
+
+async function navigateToDevDebug(page: Page): Promise<void> {
+  await navigateHashAndWait(page, '#/dev/debug');
+  await expect(page.getByTestId(TEST_IDS.galleryGenerate)).toBeVisible({ timeout: 15_000 });
+}
+
 test('Task 17: generative gallery -> pending -> completed (with evidence screenshot)', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
@@ -258,6 +290,8 @@ test('Task 17: generative gallery -> pending -> completed (with evidence screens
   await withTempUserDataDir(async (userDataDir) => {
     await writeStubAuthTokens(userDataDir);
 
+    const xdgConfigHome = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-xdg-config-'));
+
     const app = await electron.launch({
       executablePath: electronPath as unknown as string,
       args: [mainEntry],
@@ -266,12 +300,16 @@ test('Task 17: generative gallery -> pending -> completed (with evidence screens
         NODE_ENV: 'test',
         PARA_LABS: '1',
         PARA_SERVER_BASE_URL: stub.baseUrl,
-        PARA_USER_DATA_DIR: userDataDir
+        PARA_USER_DATA_DIR: userDataDir,
+        XDG_CONFIG_HOME: xdgConfigHome
       }
     });
 
     try {
       const page = await getDebugPanelPage(app);
+
+      await enableDevOptionsFromSettings(page);
+      await navigateToDevDebug(page);
 
       const gen = page.getByTestId(TEST_IDS.galleryGenerate);
       await expect(gen).toBeVisible();
@@ -379,6 +417,11 @@ test('Task 17: generative gallery -> pending -> completed (with evidence screens
       expect(fs.existsSync(evidencePath)).toBeTruthy();
     } finally {
       await app.close();
+
+      try {
+        await fs.promises.rm(xdgConfigHome, { recursive: true, force: true });
+      } catch {
+      }
     }
   });
 

@@ -48,7 +48,7 @@ async function getDebugPanelPage(app: ElectronApplication): Promise<Page> {
     if (page.isClosed()) continue;
 
     try {
-      await page.waitForLoadState('domcontentloaded', { timeout: 1_000 });
+      await page.waitForLoadState('domcontentloaded', { timeout: 5_000 });
     } catch {
     }
 
@@ -148,7 +148,8 @@ async function startAuthStubServer({ correctPassword }: { correctPassword: strin
       res.end(
         JSON.stringify({
           user_id: 1,
-          email
+          email,
+          debug_allowed: false
         })
       );
       return;
