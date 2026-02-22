@@ -138,6 +138,65 @@ docker compose ps
 curl -fsS <base_url>/api/v1/health
 ```
 
+## AppEnc（应用层加密，AES-256-GCM）
+
+AppEnc 是服务端的 ASGI middleware：仅当请求头带 `X-Para-Enc: v1` 时才会进入解密流程。
+
+### 范围与限制（保持现状，不扩展）
+
+- 仅覆盖 `Content-Type: application/json` 且 **非空** body 的请求。
+- 不对 GET/空 body “自动加密”。客户端应避免对这类请求发送 `X-Para-Enc: v1`。
+- 响应加密仅在请求头额外带 `X-Para-Enc-Resp: v1` 且响应为 `application/json`（并且不是 streaming/multi-chunk body）时生效。
+
+当 `X-Para-Enc: v1` 存在但不满足条件或 envelope 非法时，服务端会返回稳定的明文 JSON 错误码（fail-closed），例如：
+
+- `PARA_APPENC_UNSUPPORTED_CONTENT_TYPE`
+- `PARA_APPENC_EMPTY_BODY`
+- `PARA_APPENC_BAD_ENVELOPE`
+- `PARA_APPENC_UNKNOWN_KID`
+- `PARA_APPENC_DECRYPT_FAILED`
+
+### 启用方式（仅走 env / 服务器 .env，不入库不入仓）
+
+以下环境变量仅给出占位符示例（严禁把真实 key 写入仓库/日志）：
+
+```bash
+# 是否启用 AppEnc middleware
+PARA_APPENC_ENABLED=1
+
+# keyring：kid -> base64url(32 bytes)
+# 支持两种注入方式：
+# 1) JSON：{"k1":"<base64url_32bytes>","k2":"<base64url_32bytes>"}
+# 2) 逗号分隔：k1:<base64url_32bytes>,k2:<base64url_32bytes>
+PARA_APPENC_KEYS='k1:<base64url_32bytes>,k2:<base64url_32bytes>'
+
+# 时间窗（秒），用于 ts 校验与最小防重放窗口
+PARA_APPENC_TS_WINDOW_SEC=120
+```
+
+说明：服务端会将 keyring 的第一个 `kid` 视为 primary（用于响应加密输出）。
+
+### 最小验证（无需任何密钥/凭据）
+
+构造一个“标记为加密但 envelope 非法”的请求，预期返回 `400` + `PARA_APPENC_BAD_ENVELOPE`：
+
+```bash
+curl -sS -i -X POST https://para.pscly.cc/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Para-Enc: v1' \
+  --data '{"hello":"world"}'
+```
+
+该验证的意义：证明 middleware 已启用且对非法输入走 fail-closed，不会把请求落到业务 handler。
+
+### 本地算法闭环（pytest 已覆盖）
+
+如果需要验证“正确加密请求 + 正确解密响应”的端到端闭环（涉及真实 envelope/AAD/AES-GCM），仓库已提供 pytest 覆盖：`server/tests/test_task_19_appenc_login.py`。
+
+```bash
+cd server && uv run pytest -q tests/test_task_19_appenc_login.py
+```
+
 ## 故障排查（最小集合）
 
 - `/api/v1/health` 返回 `degraded`：优先看 `dependencies` 里哪一项是 `error`（db/redis/pgvector/worker）。

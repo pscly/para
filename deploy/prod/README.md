@@ -83,6 +83,63 @@ docker compose -f deploy/prod/docker-compose.yml --profile beat up -d beat
 
 说明：admin-web 生产在 `/admin/` 下反代，但 Vite 默认会从绝对路径 `/assets/*` 加载静态资源，因此 vhost 需要额外把 `/assets/` 指向 admin-web。
 
+## 反代下验证步骤（para.pscly.cc）
+
+目标：在不泄露任何 token/key 的前提下，给出可复制粘贴的验证步骤，确认 Nginx 反代链路 + AppEnc middleware + packaged 下 /dev 授权门控都能按预期工作。
+
+### 1) 在服务器上确认部署形态（u.pscly.cc）
+
+```bash
+ssh root@u.pscly.cc
+
+# 当前环境为 docker compose 项目（示例：project name=para）
+cd /root/dockers/para/app
+docker compose -p para -f deploy/prod/docker-compose.yml ps
+```
+
+说明：不同机器的目录可能不同，但原则上应能通过 `docker compose ls` 找到名为 `para`（或同等）的项目，并定位到其 `CONFIG FILES` 路径。
+
+### 2) 反代 health（无凭据）
+
+```bash
+curl -fsS https://para.pscly.cc/api/v1/health
+```
+
+期望：JSON `status` 为 `ok`（或按服务端定义为 `degraded` 但可用），且 `dependencies.pgvector.status` 为 `ok`。
+
+### 3) AppEnc 最小验证（fail-closed，无密钥）
+
+构造一个“标记为加密但 envelope 非法”的请求，预期返回稳定错误 `PARA_APPENC_BAD_ENVELOPE`（证明 middleware 启用且拒绝非法输入）：
+
+```bash
+curl -sS -i -X POST https://para.pscly.cc/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -H 'X-Para-Enc: v1' \
+  --data '{"hello":"world"}'
+```
+
+期望：HTTP 400，body 为 `{"detail":"PARA_APPENC_BAD_ENVELOPE"}`。
+
+### 4) packaged 下 /dev（开发者选项）授权门控提示
+
+正式包（packaged）下 `/dev/*` 的有效开关必须满足：
+
+- Settings 里 `desiredEnabled=true`
+- 已登录
+- 后端 `/api/v1/auth/me` 返回 `debug_allowed=true`
+
+未登录/未授权/网络异常一律 fail-closed（`effectiveEnabled=false`，并拒绝访问 `#/dev/*`）。
+
+#### 运维：如何授予/撤销 debug_allowed（不写真实账号）
+
+`debug_allowed` 只能由 `admin-web` 的 `super_admin` 管理：
+
+1) 打开 `https://para.pscly.cc/admin/`，使用 `<YOUR_ADMIN_EMAIL>` / `<YOUR_ADMIN_PASSWORD>` 登录（占位符）。
+2) 进入 `Config -> Debug Users`。
+3) 输入目标用户 email 查询，将 `debug_allowed` 切换为 `true/false` 并保存。
+
+注意：不要在任何文档/日志里记录真实账号、密码或 token。
+
 ## 必须的环境变量（生产必配）
 
 本 compose 不在仓库内写任何真实 secrets；生产请在服务器侧用环境变量或 `.env` 注入：
