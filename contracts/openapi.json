@@ -211,6 +211,44 @@
         "title": "Body_ugc_assets_upload",
         "type": "object"
       },
+      "DebugAllowedGetResponse": {
+        "properties": {
+          "debug_allowed": {
+            "title": "Debug Allowed",
+            "type": "boolean"
+          },
+          "email": {
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "debug_allowed"
+        ],
+        "title": "DebugAllowedGetResponse",
+        "type": "object"
+      },
+      "DebugAllowedPutRequest": {
+        "properties": {
+          "debug_allowed": {
+            "title": "Debug Allowed",
+            "type": "boolean"
+          },
+          "email": {
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "Email",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "debug_allowed"
+        ],
+        "title": "DebugAllowedPutRequest",
+        "type": "object"
+      },
       "DependencyStatus": {
         "properties": {
           "detail": {
@@ -1249,6 +1287,10 @@
       },
       "MeResponse": {
         "properties": {
+          "debug_allowed": {
+            "title": "Debug Allowed",
+            "type": "boolean"
+          },
           "email": {
             "title": "Email",
             "type": "string"
@@ -1260,7 +1302,8 @@
         },
         "required": [
           "user_id",
-          "email"
+          "email",
+          "debug_allowed"
         ],
         "title": "MeResponse",
         "type": "object"
@@ -4521,6 +4564,99 @@
           }
         ],
         "summary": "Admin Review Ugc Reject",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/v1/admin/users/debug_allowed": {
+      "get": {
+        "operationId": "admin_users_debug_allowed_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "email",
+            "required": true,
+            "schema": {
+              "maxLength": 320,
+              "minLength": 1,
+              "title": "Email",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugAllowedGetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Admin Users Debug Allowed Get",
+        "tags": [
+          "admin"
+        ]
+      },
+      "put": {
+        "operationId": "admin_users_debug_allowed_put",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DebugAllowedPutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DebugAllowedGetResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Admin Users Debug Allowed Put",
         "tags": [
           "admin"
         ]

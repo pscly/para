@@ -420,6 +420,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/users/debug_allowed": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Admin Users Debug Allowed Get */
+        get: operations["admin_users_debug_allowed_get"];
+        /** Admin Users Debug Allowed Put */
+        put: operations["admin_users_debug_allowed_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/auth/login": {
         parameters: {
             query?: never;
@@ -1150,6 +1168,20 @@ export interface components {
             /** Manifest Json */
             manifest_json: string;
         };
+        /** DebugAllowedGetResponse */
+        DebugAllowedGetResponse: {
+            /** Debug Allowed */
+            debug_allowed: boolean;
+            /** Email */
+            email: string;
+        };
+        /** DebugAllowedPutRequest */
+        DebugAllowedPutRequest: {
+            /** Debug Allowed */
+            debug_allowed: boolean;
+            /** Email */
+            email: string;
+        };
         /** DependencyStatus */
         DependencyStatus: {
             /**
@@ -1531,6 +1563,8 @@ export interface components {
         };
         /** MeResponse */
         MeResponse: {
+            /** Debug Allowed */
+            debug_allowed: boolean;
             /** Email */
             email: string;
             /** User Id */
@@ -3119,6 +3153,70 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AdminReviewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_users_debug_allowed_get: {
+        parameters: {
+            query: {
+                email: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugAllowedGetResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    admin_users_debug_allowed_put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DebugAllowedPutRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugAllowedGetResponse"];
                 };
             };
             /** @description Validation Error */
