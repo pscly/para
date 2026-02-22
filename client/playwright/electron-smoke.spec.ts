@@ -65,14 +65,52 @@ test('Electron smoke: core routes render and stable testids exist', async () => 
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
 
-  const env = { ...process.env, NODE_ENV: 'test' };
-  delete (env as any).PARA_LABS;
+  const env: NodeJS.ProcessEnv = { ...process.env, NODE_ENV: 'test' };
+  delete env.PARA_LABS;
 
-  const app = await electron.launch({
-    executablePath: electronPath as unknown as string,
-    args: [mainEntry],
-    env
-  });
+  const launchArgs = [mainEntry];
+  if (env.CI) {
+    launchArgs.push('--no-sandbox', '--disable-gpu');
+  }
+
+  let app: ElectronApplication;
+  try {
+    app = await electron.launch({
+      executablePath: electronPath as unknown as string,
+      args: launchArgs,
+      env,
+    });
+  } catch (err) {
+    const evidencePath = path.resolve(
+      process.cwd(),
+      '..',
+      '.sisyphus',
+      'evidence',
+      'ci-electron-launch-failure.txt',
+    );
+    await fs.promises.mkdir(path.dirname(evidencePath), { recursive: true });
+    const msg = err instanceof Error ? `${err.message}\n${err.stack ?? ''}` : String(err);
+    await fs.promises.writeFile(
+      evidencePath,
+      [
+        'Electron launch failed',
+        `mainEntry=${mainEntry}`,
+        `mainEntryExists=${fs.existsSync(mainEntry)}`,
+        `electronPath=${String(electronPath)}`,
+        `platform=${process.platform}`,
+        `arch=${process.arch}`,
+        `versions=${JSON.stringify(process.versions)}`,
+        `DISPLAY=${env.DISPLAY ?? ''}`,
+        `XDG_RUNTIME_DIR=${env.XDG_RUNTIME_DIR ?? ''}`,
+        `launchArgs=${JSON.stringify(launchArgs)}`,
+        '',
+        msg,
+        '',
+      ].join('\n'),
+      { encoding: 'utf8' },
+    );
+    throw err;
+  }
 
   try {
     const page = await getDebugPanelPage(app);

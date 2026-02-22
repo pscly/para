@@ -155,7 +155,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npm -C client run e2e -- electron-smoke.spec.ts
+          # Force Xvfb: on some runners DISPLAY may exist but still be unusable.
+          xvfb-run -a npm -C client run e2e -- electron-smoke.spec.ts
 
       - name: Upload Playwright artifacts (on failure)
         if: ${{ failure() }}
