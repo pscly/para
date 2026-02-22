@@ -378,6 +378,43 @@ export async function adminMetricsGetSummary(): Promise<AdminMetricsSummary> {
   return apiRequestJson<AdminMetricsSummary>("/api/v1/admin/metrics/summary", { method: "GET" });
 }
 
+export type AdminUsersDebugAllowedResponse = {
+  email: string;
+  debug_allowed: boolean;
+};
+
+export async function adminUsersDebugAllowedGet(email: string): Promise<AdminUsersDebugAllowedResponse> {
+  const e = requireNonEmpty(email, "email");
+  const q = new URLSearchParams();
+  q.set("email", e);
+  const path = `/api/v1/admin/users/debug_allowed?${q.toString()}`;
+  const res = await apiRequestJson<Partial<AdminUsersDebugAllowedResponse>>(path, { method: "GET" });
+  return {
+    email: typeof res.email === "string" && res.email.trim() ? res.email : e,
+    debug_allowed: typeof res.debug_allowed === "boolean" ? res.debug_allowed : false,
+  };
+}
+
+export type AdminUsersDebugAllowedPutRequest = {
+  email: string;
+  debug_allowed: boolean;
+};
+
+export async function adminUsersDebugAllowedPut(
+  payload: AdminUsersDebugAllowedPutRequest,
+): Promise<AdminUsersDebugAllowedResponse> {
+  const e = requireNonEmpty(payload.email, "email");
+  const body = { email: e, debug_allowed: Boolean(payload.debug_allowed) };
+  const res = await apiRequestJson<Partial<AdminUsersDebugAllowedResponse>>("/api/v1/admin/users/debug_allowed", {
+    method: "PUT",
+    body,
+  });
+  return {
+    email: typeof res.email === "string" && res.email.trim() ? res.email : e,
+    debug_allowed: typeof res.debug_allowed === "boolean" ? res.debug_allowed : body.debug_allowed,
+  };
+}
+
 export type AdminReviewUgcResponse = {
   asset_id: string;
   status: string;

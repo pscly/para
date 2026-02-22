@@ -12,6 +12,7 @@ import { clearAdminSession, isAdminAuthed, loadAdminSession } from "./auth";
 
 import { AuditLogsPage } from "../pages/AuditLogsPage";
 import { DashboardPage } from "../pages/DashboardPage";
+import { DebugUsersPage } from "../pages/DebugUsersPage";
 import { FeatureFlagsPage } from "../pages/FeatureFlagsPage";
 import { InvitesPage } from "../pages/InvitesPage";
 import { LoginPage } from "../pages/LoginPage";
@@ -38,14 +39,15 @@ function AppLayout() {
 
   const items = useMemo(
     () =>
-      [
-        { to: "/", label: "概览" },
-        { to: "/config/feature-flags", label: "Feature Flags" },
-        { to: "/config/invites", label: "邀请码" },
-        { to: "/config/audit-logs", label: "审计日志" },
-        { to: "/ai/models", label: "Models" },
-        { to: "/ai/channels", label: "Channels" },
-        { to: "/ai/routing", label: "Routing" },
+        [
+          { to: "/", label: "概览" },
+          { to: "/config/feature-flags", label: "Feature Flags" },
+          { to: "/config/invites", label: "邀请码" },
+          { to: "/config/debug-users", label: "Debug Users" },
+          { to: "/config/audit-logs", label: "审计日志" },
+          { to: "/ai/models", label: "Models" },
+          { to: "/ai/channels", label: "Channels" },
+          { to: "/ai/routing", label: "Routing" },
         { to: "/ai/prompts", label: "Prompts" },
         { to: "/review/ugc", label: "UGC 审核" },
         { to: "/review/plugins", label: "插件审核" },
@@ -143,6 +145,7 @@ const routes = [
       { index: true, element: <DashboardPage /> },
       { path: "config/feature-flags", element: <FeatureFlagsPage /> },
       { path: "config/invites", element: <InvitesPage /> },
+      { path: "config/debug-users", element: <DebugUsersPage /> },
       { path: "config/audit-logs", element: <AuditLogsPage /> },
       { path: "ai/models", element: <ModelsPage /> },
       { path: "ai/channels", element: <LlmChannelsPage /> },
