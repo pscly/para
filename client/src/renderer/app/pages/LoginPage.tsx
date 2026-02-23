@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 import { getDesktopApi } from '../../services/desktopApi';
 import { Button } from '../../ui/Button';
@@ -20,7 +20,7 @@ function getErrorCode(err: unknown): string {
 
 function toReadableLoginError(err: unknown): string {
   const code = getErrorCode(err);
-  if (code.includes('BAD_CREDENTIALS')) return '邮箱或密码错误';
+  if (code.includes('BAD_CREDENTIALS')) return '用户名或邮箱或密码错误';
   if (code.includes('NETWORK_ERROR')) return '网络错误';
   if (code.includes('SAFE_STORAGE_UNAVAILABLE')) {
     return '本机安全存储不可用，无法安全保存登录态（已禁止明文保存 token）。请先修复系统密钥环/凭据服务或更换到受支持的桌面环境后重试。';
@@ -31,7 +31,7 @@ function toReadableLoginError(err: unknown): string {
 export function LoginPage() {
   const navigate = useNavigate();
 
-  const [email, setEmail] = useState('');
+  const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -40,8 +40,8 @@ export function LoginPage() {
     e.preventDefault();
     if (submitting) return;
 
-    if (!email || !password) {
-      setError('请输入邮箱与密码');
+    if (!identifier || !password) {
+      setError('请输入用户名或邮箱与密码');
       return;
     }
 
@@ -54,7 +54,7 @@ export function LoginPage() {
     setSubmitting(true);
     setError('');
     try {
-      await login(email, password);
+      await login(identifier, password);
       navigate('/chat');
     } catch (err: unknown) {
       setError(toReadableLoginError(err));
@@ -72,12 +72,12 @@ export function LoginPage() {
 
             <form onSubmit={onSubmit} style={{ display: 'grid', gap: 10 }}>
               <TextInput
-                label="邮箱"
-                placeholder="邮箱"
-                inputMode="email"
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                label="用户名或邮箱"
+                placeholder="用户名或邮箱"
+                inputMode="text"
+                autoComplete="username"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 data-testid={TEST_IDS.loginEmail}
               />
               <TextInput
@@ -102,6 +102,15 @@ export function LoginPage() {
                 </Button>
               </div>
             </form>
+
+            <div className="row" style={{ justifyContent: 'center', marginTop: 10 }}>
+              <Link
+                to="/register"
+                style={{ color: 'var(--accent)', textDecoration: 'underline', fontSize: 13 }}
+              >
+                没有账号？去注册
+              </Link>
+            </div>
           </Card>
         </div>
       </div>

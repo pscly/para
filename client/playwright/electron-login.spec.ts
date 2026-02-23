@@ -95,16 +95,18 @@ async function startAuthStubServer({ correctPassword }: { correctPassword: strin
         return;
       }
 
-      const email =
-        typeof parsed === 'object' && parsed !== null && 'email' in parsed
-          ? (parsed as { email?: unknown }).email
-          : undefined;
+      const identifierOrEmail =
+        typeof parsed === 'object' && parsed !== null && 'identifier' in parsed
+          ? (parsed as { identifier?: unknown }).identifier
+          : typeof parsed === 'object' && parsed !== null && 'email' in parsed
+            ? (parsed as { email?: unknown }).email
+            : undefined;
       const password =
         typeof parsed === 'object' && parsed !== null && 'password' in parsed
           ? (parsed as { password?: unknown }).password
           : undefined;
 
-      if (typeof email !== 'string' || typeof password !== 'string') {
+      if (typeof identifierOrEmail !== 'string' || typeof password !== 'string') {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ detail: 'bad payload' }));
         return;
@@ -116,11 +118,11 @@ async function startAuthStubServer({ correctPassword }: { correctPassword: strin
         return;
       }
 
-       const access_token = randomBytes(16).toString('hex');
-       const refresh_token = randomBytes(16).toString('hex');
+      const access_token = randomBytes(16).toString('hex');
+      const refresh_token = randomBytes(16).toString('hex');
 
-       accessTokenToEmail.set(access_token, email);
-       issuedTokensByEmail.set(email, { access_token, refresh_token });
+      accessTokenToEmail.set(access_token, identifierOrEmail);
+      issuedTokensByEmail.set(identifierOrEmail, { access_token, refresh_token });
 
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(
@@ -128,9 +130,9 @@ async function startAuthStubServer({ correctPassword }: { correctPassword: strin
           access_token,
           refresh_token,
           token_type: 'bearer'
-        })
-      );
-      return;
+         })
+       );
+       return;
     }
 
     if (req.method === 'GET' && url === '/api/v1/auth/me') {
@@ -327,6 +329,68 @@ async function scanDirsForPlaintextSecrets(opts: {
   return hits;
 }
 
+test('Electron auth entrypoints: sidebar login/register + 中文导航 + 登录/注册互链', async () => {
+  const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
+  expect(fs.existsSync(mainEntry)).toBeTruthy();
+
+  const stub = await startAuthStubServer({ correctPassword: 'correct-password' });
+
+  await withTempUserDataDir(async (userDataDir) => {
+    const xdgConfigHome = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-xdg-config-'));
+    const app = await electron.launch({
+      executablePath: electronPath as unknown as string,
+      args: [mainEntry],
+      env: {
+        ...process.env,
+        NODE_ENV: 'test',
+        PARA_SERVER_BASE_URL: stub.baseUrl,
+        PARA_USER_DATA_DIR: userDataDir,
+        XDG_CONFIG_HOME: xdgConfigHome
+      }
+    });
+
+    try {
+      const page = await getDebugPanelPage(app);
+      const nav = page.getByRole('navigation', { name: 'Primary' });
+
+      await expect(nav.getByRole('link', { name: '聊天' })).toBeVisible({ timeout: 15_000 });
+      await expect(nav.getByRole('link', { name: '设置' })).toBeVisible();
+      await expect(nav.getByRole('link', { name: '插件' })).toBeVisible();
+      await expect(nav.getByRole('link', { name: '知识库' })).toBeVisible();
+      await expect(nav.getByRole('link', { name: '更新' })).toBeVisible();
+
+      await expect(nav.getByRole('link', { name: '登录' })).toBeVisible({ timeout: 15_000 });
+      await expect(nav.getByRole('link', { name: '注册' })).toBeVisible();
+
+      await nav.getByRole('link', { name: '登录' }).click();
+      await expect(page.getByTestId(TEST_IDS.loginSubmit)).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(() => page.evaluate(() => window.location.hash), { timeout: 5_000 })
+        .toBe('#/login');
+
+      await nav.getByRole('link', { name: '注册' }).click();
+      await expect(page.getByTestId(TEST_IDS.registerSubmit)).toBeVisible({ timeout: 15_000 });
+      await expect
+        .poll(() => page.evaluate(() => window.location.hash), { timeout: 5_000 })
+        .toBe('#/register');
+
+      await page.getByRole('link', { name: '已有账号？去登录' }).click();
+      await expect(page.getByTestId(TEST_IDS.loginSubmit)).toBeVisible({ timeout: 15_000 });
+
+      await page.getByRole('link', { name: '没有账号？去注册' }).click();
+      await expect(page.getByTestId(TEST_IDS.registerSubmit)).toBeVisible({ timeout: 15_000 });
+    } finally {
+      await app.close();
+      try {
+        await fs.promises.rm(xdgConfigHome, { recursive: true, force: true });
+      } catch {
+      }
+    }
+  });
+
+  await stub.close();
+});
+
 test('Electron login: success', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
@@ -358,7 +422,8 @@ test('Electron login: success', async () => {
       await page.getByTestId(TEST_IDS.loginPassword).fill('correct-password');
       await page.getByTestId(TEST_IDS.loginSubmit).click();
 
-      await expect(page.getByText(`已登录：${email}`)).toBeVisible();
+      const nav = page.getByRole('navigation', { name: 'Primary' });
+      await expect(nav.getByText(`已登录：${email}`)).toBeVisible();
       await expect(page.locator(`[data-testid="${TEST_IDS.loginError}"]`)).toHaveCount(0);
 
       const evidencePath = getEvidencePath('task-6-login-success.png');
