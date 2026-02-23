@@ -85,11 +85,14 @@ function writeJson(res: http.ServerResponse, statusCode: number, payload: unknow
 async function startStubBackend(opts: {
   pluginsEnabledInitial: boolean;
   inviteRegistrationEnabledInitial?: boolean;
+  openRegistrationEnabledInitial?: boolean;
   plugin: ApprovedPlugin;
 }): Promise<BackendStub> {
   let pluginsEnabled = Boolean(opts.pluginsEnabledInitial);
   let inviteRegistrationEnabled =
     typeof opts.inviteRegistrationEnabledInitial === 'boolean' ? opts.inviteRegistrationEnabledInitial : true;
+  let openRegistrationEnabled =
+    typeof opts.openRegistrationEnabledInitial === 'boolean' ? opts.openRegistrationEnabledInitial : false;
 
   const adminFeatureFlagsPutBodies: unknown[] = [];
 
@@ -119,7 +122,7 @@ async function startStubBackend(opts: {
         writeJson(res, 401, { detail: 'unauthorized' });
         return;
       }
-      writeJson(res, 200, { user_id: 'e2e', email: 'e2e@local' });
+      writeJson(res, 200, { user_id: 'e2e', email: 'e2e@local', debug_allowed: false });
       return;
     }
 
@@ -128,7 +131,8 @@ async function startStubBackend(opts: {
         generated_at: new Date().toISOString(),
         feature_flags: {
           plugins_enabled: pluginsEnabled,
-          invite_registration_enabled: inviteRegistrationEnabled
+          invite_registration_enabled: inviteRegistrationEnabled,
+          open_registration_enabled: openRegistrationEnabled
         }
       });
       return;
@@ -199,7 +203,8 @@ async function startStubBackend(opts: {
       }
       writeJson(res, 200, {
         plugins_enabled: pluginsEnabled,
-        invite_registration_enabled: inviteRegistrationEnabled
+        invite_registration_enabled: inviteRegistrationEnabled,
+        open_registration_enabled: openRegistrationEnabled
       });
       return;
     }
@@ -216,9 +221,12 @@ async function startStubBackend(opts: {
       const hasPluginsEnabled = typeof parsed === 'object' && parsed !== null && 'plugins_enabled' in parsed;
       const hasInviteRegistrationEnabled =
         typeof parsed === 'object' && parsed !== null && 'invite_registration_enabled' in parsed;
-      if (!hasPluginsEnabled && !hasInviteRegistrationEnabled) {
+      const hasOpenRegistrationEnabled =
+        typeof parsed === 'object' && parsed !== null && 'open_registration_enabled' in parsed;
+      if (!hasPluginsEnabled && !hasInviteRegistrationEnabled && !hasOpenRegistrationEnabled) {
         writeJson(res, 400, {
-          detail: 'Body must contain at least one of: plugins_enabled, invite_registration_enabled'
+          detail:
+            'Body must contain at least one of: plugins_enabled, invite_registration_enabled, open_registration_enabled'
         });
         return;
       }
@@ -241,11 +249,21 @@ async function startStubBackend(opts: {
         inviteRegistrationEnabled = v;
       }
 
+      if (hasOpenRegistrationEnabled) {
+        const v = (parsed as { open_registration_enabled?: unknown }).open_registration_enabled;
+        if (typeof v !== 'boolean') {
+          writeJson(res, 400, { detail: 'open_registration_enabled must be a boolean' });
+          return;
+        }
+        openRegistrationEnabled = v;
+      }
+
       adminFeatureFlagsPutBodies.push(parsed);
 
       writeJson(res, 200, {
         plugins_enabled: pluginsEnabled,
-        invite_registration_enabled: inviteRegistrationEnabled
+        invite_registration_enabled: inviteRegistrationEnabled,
+        open_registration_enabled: openRegistrationEnabled
       });
       return;
     }
@@ -588,6 +606,11 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
           page.getByText('开启仅表示允许邀请码注册，不代表开放无邀请码注册。', { exact: true })
         ).toBeVisible({ timeout: 15_000 });
 
+        await expect(
+          page.getByText('开启后允许无邀请码注册（但仍建议保留邀请码注册开关作为兼容）。', { exact: true })
+        ).toBeVisible({ timeout: 15_000 });
+        await expect(page.getByText(/注册仍会被关闭/)).toBeVisible({ timeout: 15_000 });
+
         const saveBtn = page.getByRole('button', { name: '保存' });
         await expect(saveBtn).toBeVisible();
 
@@ -596,11 +619,14 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
 
         const pluginsKv = page.locator('.kv').filter({ hasText: 'plugins_enabled' });
         const inviteKv = page.locator('.kv').filter({ hasText: 'invite_registration_enabled' });
+        const openKv = page.locator('.kv').filter({ hasText: 'open_registration_enabled' });
 
         const pluginsSwitchLabel = pluginsKv.locator('label.switch');
         const inviteSwitchLabel = inviteKv.locator('label.switch');
+        const openSwitchLabel = openKv.locator('label.switch');
         await expect(pluginsSwitchLabel).toBeVisible();
         await expect(inviteSwitchLabel).toBeVisible();
+        await expect(openSwitchLabel).toBeVisible();
 
         const pluginsCheckbox = pluginsSwitchLabel.locator('input[type="checkbox"]');
         await expect(pluginsCheckbox).toBeEnabled({ timeout: 15_000 });
@@ -611,6 +637,11 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
         await expect(inviteCheckbox).toBeEnabled({ timeout: 15_000 });
         await expect(inviteCheckbox).toBeChecked();
         await expect(inviteKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        const openCheckbox = openSwitchLabel.locator('input[type="checkbox"]');
+        await expect(openCheckbox).toBeEnabled({ timeout: 15_000 });
+        await expect(openCheckbox).not.toBeChecked();
+        await expect(openKv.getByText('DISABLED', { exact: true })).toBeVisible();
 
         await expect(saveBtn).toBeDisabled();
 
@@ -643,6 +674,21 @@ test('Plan 5.1: admin-web toggles feature_flags -> Electron client observes plug
 
         expect(stub.adminFeatureFlagsPutBodies.length).toBe(2);
         expect(stub.adminFeatureFlagsPutBodies[1]).toEqual({ invite_registration_enabled: false });
+
+        await openSwitchLabel.click();
+        await expect(dirtyText).toBeVisible({ timeout: 10_000 });
+        await expect(saveBtn).toBeEnabled({ timeout: 10_000 });
+        await expect(openKv.getByText('ENABLED', { exact: true })).toBeVisible();
+        await expect(inviteKv.getByText('DISABLED', { exact: true })).toBeVisible();
+        await expect(pluginsKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        await saveBtn.click();
+        await expect(page.getByText('已保存', { exact: true })).toBeVisible({ timeout: 15_000 });
+        await expect(statusClean).toBeVisible({ timeout: 15_000 });
+        await expect(openKv.getByText('ENABLED', { exact: true })).toBeVisible();
+
+        expect(stub.adminFeatureFlagsPutBodies.length).toBe(3);
+        expect(stub.adminFeatureFlagsPutBodies[2]).toEqual({ open_registration_enabled: true });
       } finally {
         await page.close().catch(() => undefined);
         await browser.close().catch(() => undefined);
