@@ -22,6 +22,13 @@ type PluginOutputPayload = {
   pluginId: string;
 };
 
+type PetBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 function sanitizeTestId(raw: string): string {
   const sanitized = raw.replace(/[^a-zA-Z0-9_-]/g, "_").slice(0, 80);
   return sanitized.length > 0 ? sanitized : "item";
@@ -49,6 +56,36 @@ export default function PetApp(props: PetAppProps) {
 
   const bubbleTimerRef = useRef<number | null>(null);
   const srId = useId();
+
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+  const dragStateRef = useRef<{
+    dragging: boolean;
+    pointerId: number | null;
+    startScreenX: number;
+    startScreenY: number;
+    lastScreenX: number;
+    lastScreenY: number;
+    startBounds: PetBounds | null;
+    rafId: number | null;
+    rafPending: boolean;
+  }>({
+    dragging: false,
+    pointerId: null,
+    startScreenX: 0,
+    startScreenY: 0,
+    lastScreenX: 0,
+    lastScreenY: 0,
+    startBounds: null,
+    rafId: null,
+    rafPending: false,
+  });
+
+  useEffect(() => {
+    return () => {
+      dragCleanupRef.current?.();
+      dragCleanupRef.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     const plugins = getDesktopApi()?.plugins;
@@ -141,13 +178,120 @@ export default function PetApp(props: PetAppProps) {
 
         <button
           type="button"
+          data-testid="pet-drag-handle"
+          aria-label="拖拽移动桌宠"
+          style={styles.dragHandle}
+          onPointerDown={(e) => {
+            if (e.button !== 0) return;
+
+            const pet = getDesktopApi()?.pet;
+            if (!pet?.getBounds || !pet?.setBounds) return;
+
+            e.preventDefault();
+            e.stopPropagation();
+
+            dragCleanupRef.current?.();
+
+            const state = dragStateRef.current;
+            state.dragging = true;
+            state.pointerId = e.pointerId;
+            state.startScreenX = e.screenX;
+            state.startScreenY = e.screenY;
+            state.lastScreenX = e.screenX;
+            state.lastScreenY = e.screenY;
+            state.startBounds = null;
+            state.rafPending = false;
+
+            try {
+              e.currentTarget.setPointerCapture(e.pointerId);
+            } catch {
+            }
+
+            const schedule = () => {
+              if (!state.dragging || !state.startBounds) return;
+              if (state.rafPending) return;
+              state.rafPending = true;
+
+              if (state.rafId != null) {
+                window.cancelAnimationFrame(state.rafId);
+              }
+
+              state.rafId = window.requestAnimationFrame(() => {
+                state.rafPending = false;
+                if (!state.dragging || !state.startBounds) return;
+
+                const dx = state.lastScreenX - state.startScreenX;
+                const dy = state.lastScreenY - state.startScreenY;
+                const next: PetBounds = {
+                  x: state.startBounds.x + dx,
+                  y: state.startBounds.y + dy,
+                  width: state.startBounds.width,
+                  height: state.startBounds.height,
+                };
+
+                void pet.setBounds(next).catch(() => {});
+              });
+            };
+
+            const onMove = (ev: PointerEvent) => {
+              if (!state.dragging) return;
+              if (state.pointerId !== null && ev.pointerId !== state.pointerId) return;
+              state.lastScreenX = ev.screenX;
+              state.lastScreenY = ev.screenY;
+              schedule();
+            };
+
+            const end = () => {
+              if (!state.dragging) return;
+              state.dragging = false;
+              state.pointerId = null;
+              state.startBounds = null;
+              state.rafPending = false;
+              if (state.rafId != null) {
+                window.cancelAnimationFrame(state.rafId);
+                state.rafId = null;
+              }
+
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", end);
+              window.removeEventListener("pointercancel", end);
+              dragCleanupRef.current = null;
+            };
+
+            dragCleanupRef.current = end;
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", end);
+            window.addEventListener("pointercancel", end);
+
+            void pet
+              .getBounds()
+              .then((b) => {
+                if (!state.dragging) return;
+                if (!b || typeof b.x !== "number" || typeof b.y !== "number") return;
+                state.startBounds = b as PetBounds;
+                schedule();
+              })
+              .catch(() => {
+                end();
+              });
+          }}
+          onClick={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          }}
+        >
+          <span aria-hidden="true" style={styles.dragHandleGrip} />
+        </button>
+
+        <button
+          type="button"
           data-testid="pet-sprite"
           aria-describedby={srId}
           onClick={() => setMenuOpen((v) => !v)}
           style={styles.spriteButton}
         >
           <span id={srId} style={styles.srOnly}>
-            Toggle pet menu
+            打开/关闭桌宠菜单
           </span>
           <span style={styles.spriteInner} />
         </button>
@@ -173,7 +317,7 @@ export default function PetApp(props: PetAppProps) {
               e.stopPropagation();
             }}
           >
-            Chat
+            聊天
           </button>
 
           {pluginMenuItems.length > 0 ? (
@@ -236,6 +380,30 @@ const styles: Record<string, ElectronCSS> = {
     background: "transparent",
     display: "grid",
     placeItems: "center",
+  },
+  dragHandle: {
+    position: "absolute",
+    left: "50%",
+    bottom: 10,
+    transform: "translateX(-50%)",
+    width: 92,
+    height: 18,
+    borderRadius: 999,
+    border: "1px solid var(--line)",
+    background: "rgba(0, 0, 0, 0.24)",
+    boxShadow: "0 10px 24px rgba(0, 0, 0, 0.22)",
+    cursor: "grab",
+    padding: 0,
+    display: "grid",
+    placeItems: "center",
+    zIndex: 4,
+    WebkitAppRegion: "no-drag",
+  },
+  dragHandleGrip: {
+    width: 34,
+    height: 4,
+    borderRadius: 999,
+    background: "rgba(255, 255, 255, 0.45)",
   },
   spriteButton: {
     width: 76,
