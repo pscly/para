@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 
 import { test, expect } from '@playwright/test';
@@ -45,30 +46,133 @@ async function getWindowInnerWidth(page: Page): Promise<number> {
   }
 }
 
-async function getPetPage(app: ElectronApplication): Promise<Page> {
-  const pages = await waitForWindows(app, 2);
+async function getWindowLocationSearch(page: Page): Promise<string> {
+  if (page.isClosed()) return '';
 
-  let bestPage: Page = pages[0]!;
-  let bestWidth = Number.POSITIVE_INFINITY;
+  try {
+    await page.waitForLoadState('domcontentloaded', { timeout: 1_000 });
+  } catch {
+  }
+
+  try {
+    const s = await page.evaluate(() => window.location.search);
+    return typeof s === 'string' ? s : '';
+  } catch {
+    return '';
+  }
+}
+
+async function getPetPage(app: ElectronApplication): Promise<Page> {
+  const pages = await waitForWindows(app, 1);
 
   for (const page of pages) {
+    const search = await getWindowLocationSearch(page);
+    if (search.includes('window=pet')) return page;
+  }
+
+  await expect
+    .poll(
+      async () => {
+        const p = app.windows();
+        for (const page of p) {
+          const search = await getWindowLocationSearch(page);
+          if (search.includes('window=pet')) return true;
+        }
+        return false;
+      },
+      { timeout: 10_000 }
+    )
+    .toBe(true)
+    .catch(() => {
+    });
+
+  const pages2 = app.windows();
+  for (const page of pages2) {
+    const search = await getWindowLocationSearch(page);
+    if (search.includes('window=pet')) return page;
+  }
+
+  let bestPage: Page = pages2[0] ?? pages[0]!;
+  let bestWidth = Number.POSITIVE_INFINITY;
+  for (const page of pages2) {
     const width = await getWindowInnerWidth(page);
     if (width > 0 && width < bestWidth) {
       bestWidth = width;
       bestPage = page;
     }
   }
-
   return bestPage;
+}
+
+type PetBounds = { x: number; y: number; width: number; height: number };
+
+function isFiniteBounds(b: unknown): b is PetBounds {
+  if (typeof b !== 'object' || b === null) return false;
+  const bb = b as Partial<Record<keyof PetBounds, unknown>>;
+  return (
+    typeof bb.x === 'number' &&
+    Number.isFinite(bb.x) &&
+    typeof bb.y === 'number' &&
+    Number.isFinite(bb.y) &&
+    typeof bb.width === 'number' &&
+    Number.isFinite(bb.width) &&
+    typeof bb.height === 'number' &&
+    Number.isFinite(bb.height)
+  );
+}
+
+async function getPetBounds(petPage: Page): Promise<PetBounds> {
+  const b = await petPage.evaluate(async () => {
+    const api = (window as any).desktopApi;
+    if (!api?.pet?.getBounds) throw new Error('E2E_NO_DESKTOPAPI_PET_GET_BOUNDS');
+    return await api.pet.getBounds();
+  });
+  if (!isFiniteBounds(b)) throw new Error('E2E_BAD_PET_BOUNDS');
+  return b;
+}
+
+async function setPetBounds(petPage: Page, bounds: PetBounds): Promise<void> {
+  await petPage.evaluate(async (b) => {
+    const api = (window as any).desktopApi;
+    if (!api?.pet?.setBounds) throw new Error('E2E_NO_DESKTOPAPI_PET_SET_BOUNDS');
+    await api.pet.setBounds(b);
+  }, bounds);
+}
+
+async function readPersistedPetBounds(userDataDir: string): Promise<PetBounds | null> {
+  const configPath = path.join(userDataDir, 'para.ui.json');
+  let raw = '';
+  try {
+    raw = await fs.promises.readFile(configPath, { encoding: 'utf8' });
+  } catch {
+    return null;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch {
+    return null;
+  }
+  if (typeof parsed !== 'object' || parsed === null) return null;
+  const rec = parsed as { version?: unknown; petWindowBounds?: unknown };
+  if (rec.version !== 1) return null;
+  const b = rec.petWindowBounds;
+  return isFiniteBounds(b) ? b : null;
 }
 
 test('Electron pet UI: sprite click opens radial menu and enters chat', async () => {
   const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
   expect(fs.existsSync(mainEntry)).toBeTruthy();
 
+  const launchArgs = [mainEntry];
+  if (process.env.CI) {
+    launchArgs.push('--no-sandbox', '--disable-gpu');
+  }
+
   const app = await electron.launch({
     executablePath: electronPath as unknown as string,
-    args: [mainEntry],
+    args: launchArgs,
     env: {
       ...process.env,
       NODE_ENV: 'test'
@@ -165,5 +269,124 @@ test('Electron pet UI: sprite click opens radial menu and enters chat', async ()
     expect(fs.existsSync(evidencePath)).toBeTruthy();
   } finally {
     await app.close();
+  }
+});
+
+test('Electron pet UI: drag handle moves window and bounds persist across restart', async () => {
+  const mainEntry = path.resolve(process.cwd(), 'dist/main/index.js');
+  expect(fs.existsSync(mainEntry)).toBeTruthy();
+
+  const userDataDir = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-userdata-'));
+  const xdgConfigHome = await fs.promises.mkdtemp(path.join(os.tmpdir(), 'para-e2e-xdg-config-'));
+
+  const launchArgs = [mainEntry];
+  if (process.env.CI) {
+    launchArgs.push('--no-sandbox', '--disable-gpu');
+  }
+
+  let movedBounds: PetBounds | null = null;
+  let persistedBounds: PetBounds | null = null;
+
+  const app1 = await electron.launch({
+    executablePath: electronPath as unknown as string,
+    args: launchArgs,
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      PARA_USER_DATA_DIR: userDataDir,
+      XDG_CONFIG_HOME: xdgConfigHome
+    }
+  });
+
+  try {
+    const petPage = await getPetPage(app1);
+    await petPage.bringToFront();
+    await expect(petPage.getByTestId('pet-drag-handle')).toBeVisible({ timeout: 15_000 });
+
+    await setPetBounds(petPage, { x: 200, y: 200, width: 260, height: 260 });
+    await expect
+      .poll(
+        async () => {
+          const b = await getPetBounds(petPage);
+          return Math.abs(b.x - 200) + Math.abs(b.y - 200);
+        },
+        { timeout: 15_000 }
+      )
+      .toBeLessThan(30);
+
+    const before = await getPetBounds(petPage);
+
+    const handle = petPage.getByTestId('pet-drag-handle');
+    const box = await handle.boundingBox();
+    if (!box) throw new Error('E2E_NO_PET_DRAG_HANDLE_BOX');
+
+    const fromX = box.x + box.width / 2;
+    const fromY = box.y + box.height / 2;
+
+    await petPage.mouse.move(fromX, fromY);
+    await petPage.mouse.down();
+    await petPage.mouse.move(fromX + 140, fromY + 90, { steps: 8 });
+    await petPage.mouse.up();
+
+    await expect
+      .poll(async () => {
+        const b = await getPetBounds(petPage);
+        return Math.abs(b.x - before.x) + Math.abs(b.y - before.y);
+      })
+      .toBeGreaterThan(20);
+
+    movedBounds = await getPetBounds(petPage);
+
+    await expect
+      .poll(
+        async () => {
+          persistedBounds = await readPersistedPetBounds(userDataDir);
+          if (!persistedBounds) return 0;
+          return Math.abs(persistedBounds.x - before.x) + Math.abs(persistedBounds.y - before.y);
+        },
+        { timeout: 15_000 }
+      )
+      .toBeGreaterThan(10);
+  } finally {
+    await app1.close();
+  }
+
+  if (!movedBounds) throw new Error('E2E_NO_MOVED_BOUNDS');
+  if (!persistedBounds) throw new Error('E2E_NO_PERSISTED_BOUNDS');
+
+  const app2 = await electron.launch({
+    executablePath: electronPath as unknown as string,
+    args: launchArgs,
+    env: {
+      ...process.env,
+      NODE_ENV: 'test',
+      PARA_USER_DATA_DIR: userDataDir,
+      XDG_CONFIG_HOME: xdgConfigHome
+    }
+  });
+
+  try {
+    const petPage2 = await getPetPage(app2);
+    await petPage2.bringToFront();
+    await expect(petPage2.getByTestId('pet-drag-handle')).toBeVisible({ timeout: 15_000 });
+
+    await expect
+      .poll(async () => {
+        const b = await getPetBounds(petPage2);
+        const dx = Math.abs(b.x - persistedBounds!.x);
+        const dy = Math.abs(b.y - persistedBounds!.y);
+        return dx + dy;
+      }, { timeout: 15_000 })
+      .toBeLessThan(120);
+  } finally {
+    await app2.close();
+    try {
+      await fs.promises.rm(userDataDir, { recursive: true, force: true });
+    } catch {
+    }
+    try {
+      await fs.promises.rm(xdgConfigHome, { recursive: true, force: true });
+    } catch {
+    }
   }
 });
