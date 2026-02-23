@@ -3,7 +3,21 @@ import fs from 'node:fs/promises';
 import crypto from 'node:crypto';
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, clipboard, dialog, globalShortcut, ipcMain, Menu, nativeImage, safeStorage, session, shell, Tray } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  clipboard,
+  dialog,
+  globalShortcut,
+  ipcMain,
+  Menu,
+  nativeImage,
+  safeStorage,
+  screen,
+  session,
+  shell,
+  Tray
+} from 'electron';
 import type { Event as ElectronEvent } from 'electron';
 import { createUpdateManager, type UpdateManager, type UpdateState } from './updateManager';
 import { getParaInstallerConfigPath, tryReadParaInstallerConfigSync, writeParaInstallerConfigAtomic } from './installerConfig';
@@ -11,6 +25,8 @@ import { getParaInstallerConfigPath, tryReadParaInstallerConfigSync, writeParaIn
 const AUTH_TOKENS_FILENAME = 'auth.tokens.json';
 
 const BYOK_CONFIG_FILENAME = 'byok.config.json';
+
+const PARA_UI_CONFIG_FILENAME = 'para.ui.json';
 
 const IPC_AUTH_SET_TOKENS = 'auth:setTokens';
 const IPC_AUTH_GET_TOKENS = 'auth:getTokens';
@@ -89,6 +105,9 @@ const IPC_SECURITY_APPENC_SET_ENABLED = 'security:appEnc:setEnabled';
 
 const IPC_SECURITY_DEVOPTIONS_GET_STATUS = 'security:devOptions:getStatus';
 const IPC_SECURITY_DEVOPTIONS_SET_ENABLED = 'security:devOptions:setEnabled';
+
+const IPC_PET_GET_BOUNDS = 'pet:getBounds';
+const IPC_PET_SET_BOUNDS = 'pet:setBounds';
 
 const DEFAULT_SERVER_BASE_URL = 'http://localhost:8000';
 
@@ -334,11 +353,13 @@ type AuthTokensPayload = {
 };
 
 type AuthLoginPayload = {
-  email: string;
+  identifier?: string;
+  email?: string;
   password: string;
 };
 
 type AuthRegisterPayload = {
+  username?: string;
   email: string;
   password: string;
   inviteCode?: string;
@@ -722,12 +743,18 @@ function isAuthTokensPayload(value: unknown): value is AuthTokensPayload {
 
 function isAuthLoginPayload(value: unknown): value is AuthLoginPayload {
   if (!isObjectRecord(value)) return false;
-  return typeof value.email === 'string' && typeof value.password === 'string';
+  const rec = value as Record<string, unknown>;
+  if (typeof rec.password !== 'string') return false;
+
+  const identifier = rec.identifier;
+  const email = rec.email;
+  return typeof identifier === 'string' || typeof email === 'string';
 }
 
 function isAuthRegisterPayload(value: unknown): value is AuthRegisterPayload {
   if (!isObjectRecord(value)) return false;
   const rec = value as Record<string, unknown>;
+  if (rec.username != null && typeof rec.username !== 'string') return false;
   if (typeof rec.email !== 'string' || typeof rec.password !== 'string') return false;
   if (rec.inviteCode != null && typeof rec.inviteCode !== 'string') return false;
   return true;
@@ -1182,7 +1209,7 @@ function shouldAckFrame(frame: unknown): boolean {
 let mainWindow: BrowserWindow | null = null;
 let petWindow: BrowserWindow | null = null;
 let tray: Tray | null = null;
-let petInteractive = false;
+let petInteractive = true;
 let updateManager: UpdateManager | null = null;
 
 function safeSendToRenderer(channel: string, payload: unknown): void {
@@ -1609,7 +1636,7 @@ async function fetchPluginsEnabledFeatureFlag(): Promise<boolean | null> {
   return parsePluginsEnabledFromFeatureFlagsResponse(json);
 }
 
-async function loginAndGetMe(email: string, password: string): Promise<AuthMeResponse> {
+async function loginAndGetMe(identifier: string, password: string): Promise<AuthMeResponse> {
   if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
     throw new Error('FETCH_UNAVAILABLE');
   }
@@ -1619,7 +1646,7 @@ async function loginAndGetMe(email: string, password: string): Promise<AuthMeRes
   const { response: loginResp, json: loginJson } = await fetchJson('/api/v1/auth/login', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ email, password })
+    body: JSON.stringify({ identifier, password })
   });
 
   if (loginResp.status === 401) {
@@ -1668,7 +1695,7 @@ async function loginAndGetMe(email: string, password: string): Promise<AuthMeRes
   return meJson;
 }
 
-async function registerAndGetMe(email: string, password: string, inviteCode?: string): Promise<AuthMeResponse> {
+async function registerAndGetMe(email: string, password: string, inviteCode?: string, username?: string): Promise<AuthMeResponse> {
   if (typeof (globalThis as unknown as { fetch?: unknown }).fetch !== 'function') {
     throw new Error('FETCH_UNAVAILABLE');
   }
@@ -1676,6 +1703,10 @@ async function registerAndGetMe(email: string, password: string, inviteCode?: st
   const baseUrl = getServerBaseUrl();
 
   const body: Record<string, unknown> = { email, password };
+  const trimmedUsername = typeof username === 'string' ? username.trim() : '';
+  if (trimmedUsername !== '') {
+    body.username = trimmedUsername;
+  }
   const trimmedInvite = typeof inviteCode === 'string' ? inviteCode.trim() : '';
   if (trimmedInvite !== '') {
     body.invite_code = trimmedInvite;
@@ -3452,7 +3483,13 @@ function registerAuthIpcHandlers() {
       throw new Error('INVALID_PAYLOAD');
     }
 
-    return loginAndGetMe(payload.email, payload.password);
+    const identifier =
+      typeof payload.identifier === 'string' && payload.identifier.trim() !== ''
+        ? payload.identifier
+        : typeof payload.email === 'string'
+          ? payload.email
+          : '';
+    return loginAndGetMe(identifier, payload.password);
   });
 
   handleTrustedIpc(IPC_AUTH_REGISTER, async (_event, payload: unknown) => {
@@ -3460,7 +3497,7 @@ function registerAuthIpcHandlers() {
       throw new Error('INVALID_PAYLOAD');
     }
 
-    return registerAndGetMe(payload.email, payload.password, payload.inviteCode);
+    return registerAndGetMe(payload.email, payload.password, payload.inviteCode, payload.username);
   });
 
   handleTrustedIpc(IPC_AUTH_ME, async () => {
@@ -4013,6 +4050,216 @@ function registerSecurityIpcHandlers() {
   });
 }
 
+type PetWindowBounds = { x: number; y: number; width: number; height: number };
+
+type ParaUiConfigFileV1 = {
+  version: 1;
+  petWindowBounds?: PetWindowBounds;
+  [key: string]: unknown;
+};
+
+function getParaUiConfigPath(): string {
+  return path.join(app.getPath('userData'), PARA_UI_CONFIG_FILENAME);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function isPetWindowBounds(value: unknown): value is PetWindowBounds {
+  if (!isObjectRecord(value)) return false;
+  const rec = value as Record<string, unknown>;
+  return (
+    isFiniteNumber(rec.x) &&
+    isFiniteNumber(rec.y) &&
+    isFiniteNumber(rec.width) &&
+    isFiniteNumber(rec.height)
+  );
+}
+
+async function tryReadParaUiConfigRaw(): Promise<Record<string, unknown> | null> {
+  const p = getParaUiConfigPath();
+  try {
+    const raw = await fs.readFile(p, { encoding: 'utf8' });
+    const parsed = JSON.parse(raw) as unknown;
+    if (!isObjectRecord(parsed)) return null;
+    return parsed as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+async function tryReadParaUiConfig(): Promise<ParaUiConfigFileV1 | null> {
+  const rec = await tryReadParaUiConfigRaw();
+  if (!rec) return null;
+  if (rec.version !== 1) return null;
+  const bounds = rec.petWindowBounds;
+  if (!isPetWindowBounds(bounds)) return null;
+  return { ...(rec as ParaUiConfigFileV1), version: 1, petWindowBounds: bounds };
+}
+
+async function writeParaUiConfigAtomic(update: ParaUiConfigFileV1): Promise<void> {
+  const configPath = getParaUiConfigPath();
+  const dir = path.dirname(configPath);
+  await fs.mkdir(dir, { recursive: true });
+
+  const existing = await tryReadParaUiConfigRaw();
+  const merged: Record<string, unknown> = { ...(existing ?? {}), ...(update as Record<string, unknown>), version: 1 };
+
+  const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(tmp, JSON.stringify(merged, null, 2), { encoding: 'utf8' });
+  await fs.rename(tmp, configPath);
+}
+
+function clampInt(value: number, min: number, max: number): number {
+  const n = Math.round(value);
+  return Math.max(min, Math.min(max, n));
+}
+
+function clampPetBounds(bounds: PetWindowBounds): PetWindowBounds {
+  const minSize = 64;
+  const maxSize = 2000;
+  const width = clampInt(bounds.width, minSize, maxSize);
+  const height = clampInt(bounds.height, minSize, maxSize);
+
+  const displays = screen.getAllDisplays();
+  const workAreas = displays.map((d) => d.workArea);
+  const fallback = { minX: -10000, minY: -10000, maxX: 10000, maxY: 10000 };
+
+  const virtual = workAreas.length
+    ? {
+        minX: Math.min(...workAreas.map((b) => b.x)),
+        minY: Math.min(...workAreas.map((b) => b.y)),
+        maxX: Math.max(...workAreas.map((b) => b.x + b.width)),
+        maxY: Math.max(...workAreas.map((b) => b.y + b.height))
+      }
+    : fallback;
+
+  const visibleMargin = 40;
+  const xMin = virtual.minX - width + visibleMargin;
+  const xMax = virtual.maxX - visibleMargin;
+  const yMin = virtual.minY - height + visibleMargin;
+  const yMax = virtual.maxY - visibleMargin;
+
+  const x = clampInt(bounds.x, Math.min(xMin, xMax), Math.max(xMin, xMax));
+  const y = clampInt(bounds.y, Math.min(yMin, yMax), Math.max(yMin, yMax));
+
+  return { x, y, width, height };
+}
+
+function clampPetBoundsToVisibleWorkArea(bounds: PetWindowBounds): PetWindowBounds {
+  const safe = clampPetBounds(bounds);
+  const displays = screen.getAllDisplays();
+  if (!displays.length) return safe;
+
+  const cx = safe.x + safe.width / 2;
+  const cy = safe.y + safe.height / 2;
+
+  const distSqPointToRect = (px: number, py: number, r: { x: number; y: number; width: number; height: number }) => {
+    const rx1 = r.x;
+    const ry1 = r.y;
+    const rx2 = r.x + r.width;
+    const ry2 = r.y + r.height;
+    const dx = px < rx1 ? rx1 - px : px > rx2 ? px - rx2 : 0;
+    const dy = py < ry1 ? ry1 - py : py > ry2 ? py - ry2 : 0;
+    return dx * dx + dy * dy;
+  };
+
+  let best = displays[0];
+  let bestDist = distSqPointToRect(cx, cy, best.workArea);
+  for (const d of displays.slice(1)) {
+    const dist = distSqPointToRect(cx, cy, d.workArea);
+    if (dist < bestDist) {
+      best = d;
+      bestDist = dist;
+    }
+  }
+
+  const wa = best.workArea;
+  const width = Math.min(safe.width, wa.width);
+  const height = Math.min(safe.height, wa.height);
+  const x = clampInt(safe.x, wa.x, wa.x + wa.width - width);
+  const y = clampInt(safe.y, wa.y, wa.y + wa.height - height);
+  return { x, y, width, height };
+}
+
+function attachPetWindowBoundsPersistence(win: BrowserWindow): void {
+  const debounceMs = 300;
+  let timer: NodeJS.Timeout | null = null;
+  let disposed = false;
+
+  const persistOnce = async () => {
+    if (disposed) return;
+    if (win.isDestroyed()) return;
+    const b = win.getBounds();
+    const next = clampPetBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+    try {
+      await writeParaUiConfigAtomic({ version: 1, petWindowBounds: next });
+    } catch {
+    }
+  };
+
+  const schedule = () => {
+    if (disposed) return;
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => {
+      timer = null;
+      void persistOnce();
+    }, debounceMs);
+  };
+
+  const onMove = () => schedule();
+  const onResize = () => schedule();
+
+  win.on('move', onMove);
+  win.on('resize', onResize);
+
+  win.on('close', () => {
+    void persistOnce();
+  });
+
+  win.once('closed', () => {
+    disposed = true;
+    if (timer) {
+      clearTimeout(timer);
+      timer = null;
+    }
+    try {
+      win.removeListener('move', onMove);
+      win.removeListener('resize', onResize);
+    } catch {
+    }
+  });
+}
+
+function registerPetIpcHandlers() {
+  handleTrustedIpc(IPC_PET_GET_BOUNDS, async () => {
+    const win = ensurePetWindow();
+    const b = win.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  });
+
+  handleTrustedIpc(IPC_PET_SET_BOUNDS, async (_event, payload: unknown) => {
+    if (!isObjectRecord(payload)) throw new Error('INVALID_PAYLOAD');
+    const x = payload.x;
+    const y = payload.y;
+    const width = payload.width;
+    const height = payload.height;
+
+    if (typeof x !== 'number' || !Number.isFinite(x)) throw new Error('INVALID_PAYLOAD');
+    if (typeof y !== 'number' || !Number.isFinite(y)) throw new Error('INVALID_PAYLOAD');
+    if (typeof width !== 'number' || !Number.isFinite(width)) throw new Error('INVALID_PAYLOAD');
+    if (typeof height !== 'number' || !Number.isFinite(height)) throw new Error('INVALID_PAYLOAD');
+
+    const next = clampPetBounds({ x, y, width, height });
+    const win = ensurePetWindow();
+    win.setBounds(next);
+
+    const b = win.getBounds();
+    return { x: b.x, y: b.y, width: b.width, height: b.height };
+  });
+}
+
 function createMainWindow() {
   const preloadPath = path.join(__dirname, '..', 'preload', 'index.js');
   const devUrlRaw = process.env.VITE_DEV_SERVER_URL;
@@ -4063,10 +4310,18 @@ function createPetWindow() {
   const devUrl = typeof devUrlRaw === 'string' && devUrlRaw.trim() !== '' ? devUrlRaw : null;
   const devToolsEnabled = Boolean(devUrl);
 
+  const restorePromise = (async () => {
+    const cfg = await tryReadParaUiConfig();
+    const saved = cfg?.petWindowBounds;
+    if (!saved) return null;
+    return clampPetBoundsToVisibleWorkArea(saved);
+  })();
+
   const win = new BrowserWindow({
     width: 320,
     height: 320,
     title: '桌宠',
+    show: false,
     transparent: true,
     frame: false,
     resizable: false,
@@ -4091,7 +4346,22 @@ function createPetWindow() {
 
   applyNavigationAndExternalGuards(win);
 
-  win.setIgnoreMouseEvents(true, { forward: true });
+  applyPetInteractivity(win, petInteractive);
+
+  win.once('ready-to-show', () => {
+    void (async () => {
+      try {
+        const restored = await restorePromise;
+        if (restored && !win.isDestroyed()) {
+          win.setBounds(restored);
+        }
+      } catch {
+      }
+
+      if (win.isDestroyed()) return;
+      if (!win.isVisible()) win.showInactive();
+    })();
+  });
 
   if (devUrl) {
     win.loadURL(`${devUrl}?window=pet`);
@@ -4100,7 +4370,17 @@ function createPetWindow() {
     win.loadFile(indexHtml, { query: { window: 'pet' } });
   }
 
+  attachPetWindowBoundsPersistence(win);
+
   return win;
+}
+
+function applyPetInteractivity(win: BrowserWindow, interactive: boolean): void {
+  if (interactive) {
+    win.setIgnoreMouseEvents(false);
+  } else {
+    win.setIgnoreMouseEvents(true, { forward: true });
+  }
 }
 
 function ensureMainWindow(): BrowserWindow {
@@ -4113,9 +4393,7 @@ function ensureMainWindow(): BrowserWindow {
 function ensurePetWindow(): BrowserWindow {
   if (!petWindow || petWindow.isDestroyed()) {
     petWindow = createPetWindow();
-    if (petInteractive) {
-      petWindow.setIgnoreMouseEvents(false);
-    }
+    applyPetInteractivity(petWindow, petInteractive);
   }
   return petWindow;
 }
@@ -4129,7 +4407,7 @@ function buildTrayMenu() {
         if (win.isVisible()) {
           win.hide();
         } else {
-          win.show();
+          win.showInactive();
         }
       }
     },
@@ -4146,8 +4424,8 @@ function buildTrayMenu() {
       label: '切换可交互',
       type: 'checkbox',
       checked: petInteractive,
-      click: () => {
-        togglePetInteractivity();
+      click: (menuItem) => {
+        setPetInteractivity(menuItem.checked);
       }
     },
     { type: 'separator' },
@@ -4169,13 +4447,7 @@ function setPetInteractivity(nextInteractive: boolean): void {
   petInteractive = nextInteractive;
   const win = ensurePetWindow();
 
-  if (petInteractive) {
-    win.show();
-    win.focus();
-    win.setIgnoreMouseEvents(false);
-  } else {
-    win.setIgnoreMouseEvents(true, { forward: true });
-  }
+  applyPetInteractivity(win, petInteractive);
 
   refreshTrayMenu();
 }
@@ -4227,6 +4499,7 @@ app.whenReady().then(async () => {
   registerPluginsIpcHandlers();
   registerUpdateIpcHandlers();
   registerUserDataIpcHandlers();
+  registerPetIpcHandlers();
 
   await pluginManager.init();
   featureFlagsPoller.start();

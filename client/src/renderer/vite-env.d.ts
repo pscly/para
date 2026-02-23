@@ -267,8 +267,11 @@ export type DesktopApi = {
     }>;
   };
   auth: {
-    login: (email: string, password: string) => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
-    register: (email: string, password: string, inviteCode?: string) => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+    login: (identifier: string, password: string) => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+    register: {
+      (email: string, password: string, inviteCode?: string): Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+      (username: string, email: string, password: string, inviteCode?: string): Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
+    };
     me: () => Promise<{ user_id: string | number; email: string; debug_allowed: boolean }>;
     logout: () => Promise<void>;
   };
@@ -332,6 +335,15 @@ export type DesktopApi = {
     getInfo: () => Promise<{ userDataDir: string; source: string; configPath: string; envOverrideActive: boolean }>;
     pickDir: () => Promise<{ canceled: boolean; path: string | null }>;
     migrate: (targetDir: string) => Promise<{ targetDir: string }>;
+  };
+  pet: {
+    getBounds: () => Promise<{ x: number; y: number; width: number; height: number }>;
+    setBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<{
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+    }>;
   };
   app: {
     relaunch: () => Promise<void>;

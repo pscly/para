@@ -6,6 +6,62 @@ type AuthMe = {
   debug_allowed: boolean;
 };
 
+type AuthRegisterArgs =
+  | [email: string, password: string, inviteCode?: string]
+  | [username: string, email: string, password: string, inviteCode?: string];
+
+type AuthRegisterIpcPayload = {
+  username?: string;
+  email: string;
+  password: string;
+  inviteCode?: string;
+};
+
+function looksLikeEmail(raw: string): boolean {
+  return raw.includes('@');
+}
+
+function toAuthRegisterIpcPayload(args: AuthRegisterArgs): AuthRegisterIpcPayload {
+  const a = args[0];
+  const b = args[1];
+
+  if (args.length <= 2) {
+    return { email: a, password: b };
+  }
+
+  if (args.length >= 4) {
+    const username = a;
+    const email = b;
+    const third = args[2];
+    if (typeof third !== 'string') {
+      throw new Error('INVALID_PAYLOAD');
+    }
+    const password = third;
+    const inviteCode = args[3];
+    return {
+      username,
+      email,
+      password,
+      ...(typeof inviteCode === 'string' ? { inviteCode } : {})
+    };
+  }
+
+  // 3 参数兼容：通过“哪个参数像 email”来区分，避免旧调用被误判为新调用。
+  const third = args[2];
+  if (third == null) {
+    if (looksLikeEmail(a)) {
+      return { email: a, password: b };
+    }
+    throw new Error('INVALID_PAYLOAD');
+  }
+  if (typeof third !== 'string') throw new Error('INVALID_PAYLOAD');
+  if (!looksLikeEmail(a) && looksLikeEmail(b)) {
+    return { username: a, email: b, password: third };
+  }
+
+  return { email: a, password: b, inviteCode: third };
+}
+
 type WsStatus = 'connected' | 'reconnecting' | 'disconnected';
 
 type WsConnectResult = {
@@ -224,6 +280,13 @@ type DevOptionsStatus = {
   configPath: string;
 };
 
+type PetBounds = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
 contextBridge.exposeInMainWorld('desktopApi', {
   ping: async () => 'pong',
   getAppVersion: async (): Promise<string> => {
@@ -352,11 +415,12 @@ contextBridge.exposeInMainWorld('desktopApi', {
     }
   },
   auth: {
-    login: async (email: string, password: string): Promise<AuthMe> => {
-      return ipcRenderer.invoke('auth:login', { email, password }) as Promise<AuthMe>;
+    login: async (identifier: string, password: string): Promise<AuthMe> => {
+      return ipcRenderer.invoke('auth:login', { identifier, password }) as Promise<AuthMe>;
     },
-    register: async (email: string, password: string, inviteCode?: string): Promise<AuthMe> => {
-      return ipcRenderer.invoke('auth:register', { email, password, inviteCode }) as Promise<AuthMe>;
+    register: async (...args: AuthRegisterArgs): Promise<AuthMe> => {
+      const payload = toAuthRegisterIpcPayload(args);
+      return ipcRenderer.invoke('auth:register', payload) as Promise<AuthMe>;
     },
     me: async (): Promise<AuthMe> => {
       return ipcRenderer.invoke('auth:me') as Promise<AuthMe>;
@@ -488,6 +552,14 @@ contextBridge.exposeInMainWorld('desktopApi', {
     },
     migrate: async (targetDir: string): Promise<UserDataMigrateResult> => {
       return ipcRenderer.invoke('userdata:migrate', { targetDir }) as Promise<UserDataMigrateResult>;
+    }
+  },
+  pet: {
+    getBounds: async (): Promise<PetBounds> => {
+      return ipcRenderer.invoke('pet:getBounds') as Promise<PetBounds>;
+    },
+    setBounds: async (bounds: PetBounds): Promise<PetBounds> => {
+      return ipcRenderer.invoke('pet:setBounds', bounds) as Promise<PetBounds>;
     }
   },
   app: {
