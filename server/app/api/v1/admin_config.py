@@ -163,7 +163,11 @@ async def admin_put_prompts(
 
 
 def _default_feature_flags() -> dict[str, object]:
-    return {"plugins_enabled": False, "invite_registration_enabled": True}
+    return {
+        "plugins_enabled": False,
+        "invite_registration_enabled": True,
+        "open_registration_enabled": False,
+    }
 
 
 @router.get(
@@ -197,7 +201,7 @@ async def admin_put_feature_flags(
 ) -> dict[str, object]:
     obj = _require_object(payload)
 
-    allowed_keys = {"plugins_enabled", "invite_registration_enabled"}
+    allowed_keys = {"plugins_enabled", "invite_registration_enabled", "open_registration_enabled"}
     unknown_keys = sorted([k for k in obj.keys() if k not in allowed_keys])
     if unknown_keys:
         raise HTTPException(
@@ -205,11 +209,19 @@ async def admin_put_feature_flags(
             detail=f"Unknown feature flag key(s): {', '.join(unknown_keys)}",
         )
 
-    provided_keys = [k for k in ("plugins_enabled", "invite_registration_enabled") if k in obj]
+    provided_keys = [
+        k
+        for k in (
+            "plugins_enabled",
+            "invite_registration_enabled",
+            "open_registration_enabled",
+        )
+        if k in obj
+    ]
     if not provided_keys:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Body must contain at least one of: plugins_enabled, invite_registration_enabled",
+            detail="Body must contain at least one of: plugins_enabled, invite_registration_enabled, open_registration_enabled",
         )
 
     if "plugins_enabled" in obj and not isinstance(obj.get("plugins_enabled"), bool):
@@ -223,6 +235,13 @@ async def admin_put_feature_flags(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="invite_registration_enabled must be a boolean",
+        )
+    if "open_registration_enabled" in obj and not isinstance(
+        obj.get("open_registration_enabled"), bool
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="open_registration_enabled must be a boolean",
         )
 
     prev_row = _get_kv(db, namespace="feature_flags", key="global")

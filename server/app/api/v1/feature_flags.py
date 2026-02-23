@@ -22,7 +22,11 @@ router = APIRouter(prefix="/feature_flags", tags=["feature_flags"])
 
 
 def _default_feature_flags() -> dict[str, object]:
-    return {"plugins_enabled": False, "invite_registration_enabled": True}
+    return {
+        "plugins_enabled": False,
+        "invite_registration_enabled": True,
+        "open_registration_enabled": False,
+    }
 
 
 def _load_json_object(raw: str) -> dict[str, object]:

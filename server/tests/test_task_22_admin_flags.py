@@ -13,7 +13,7 @@ from typing import cast
 
 from app.core.security import hash_password
 from app.db.base import Base
-from app.db.models import AdminKV, AdminUser
+from app.db.models import AdminKV, AdminUser, AuditLog
 from app.db.session import SessionLocal, engine
 from app.main import app
 
@@ -68,12 +68,17 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         put_resp = client.put(
             "/api/v1/admin/config/feature_flags",
             headers=super_headers,
-            json={"plugins_enabled": True, "invite_registration_enabled": True},
+            json={
+                "plugins_enabled": True,
+                "invite_registration_enabled": True,
+                "open_registration_enabled": False,
+            },
         )
         assert put_resp.status_code == 200, put_resp.text
         put_data = cast(dict[str, object], put_resp.json())
         assert put_data.get("plugins_enabled") is True
         assert put_data.get("invite_registration_enabled") is True
+        assert put_data.get("open_registration_enabled") is False
 
         ff_resp = client.get("/api/v1/feature_flags")
         assert ff_resp.status_code == 200, ff_resp.text
@@ -83,6 +88,7 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         assert isinstance(flags, dict)
         assert flags.get("plugins_enabled") is True
         assert flags.get("invite_registration_enabled") is True
+        assert flags.get("open_registration_enabled") is False
 
         op_token = _admin_login(client, email=operator.email, password=op_pw)
         op_headers = {"Authorization": f"Bearer {op_token}"}
@@ -92,6 +98,7 @@ def test_task_22_admin_flags_rbac_and_user_get() -> None:
         admin_flags = cast(dict[str, object], get_admin_flags.json())
         assert admin_flags.get("plugins_enabled") is True
         assert admin_flags.get("invite_registration_enabled") is True
+        assert admin_flags.get("open_registration_enabled") is False
 
         op_put = client.put(
             "/api/v1/admin/config/feature_flags",
@@ -140,7 +147,11 @@ def test_task_22_admin_flags_partial_update_does_not_clear_other_overrides() -> 
         put1 = client.put(
             "/api/v1/admin/config/feature_flags",
             headers=super_headers,
-            json={"plugins_enabled": True, "invite_registration_enabled": True},
+            json={
+                "plugins_enabled": True,
+                "invite_registration_enabled": True,
+                "open_registration_enabled": False,
+            },
         )
         assert put1.status_code == 200, put1.text
 
@@ -153,6 +164,7 @@ def test_task_22_admin_flags_partial_update_does_not_clear_other_overrides() -> 
         data2 = cast(dict[str, object], put2.json())
         assert data2.get("plugins_enabled") is True
         assert data2.get("invite_registration_enabled") is False
+        assert data2.get("open_registration_enabled") is False
 
     expected_raw = json.dumps(
         {"invite_registration_enabled": False, "plugins_enabled": True},
@@ -166,6 +178,66 @@ def test_task_22_admin_flags_partial_update_does_not_clear_other_overrides() -> 
         ).scalar_one_or_none()
         assert row is not None
         assert row.value_json == expected_raw
+
+
+def test_task_22_admin_flags_open_registration_audit_changed_keys() -> None:
+    super_pw = f"pw-{uuid.uuid4().hex}"
+    super_admin = _create_admin(role="super_admin", password=super_pw)
+
+    with TestClient(app) as client:
+        super_token = _admin_login(client, email=super_admin.email, password=super_pw)
+        super_headers = {"Authorization": f"Bearer {super_token}"}
+
+        reset = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"open_registration_enabled": False},
+        )
+        assert reset.status_code == 200, reset.text
+
+        put = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"open_registration_enabled": True},
+        )
+        assert put.status_code == 200, put.text
+        data = cast(dict[str, object], put.json())
+        assert data.get("open_registration_enabled") is True
+
+        restore = client.put(
+            "/api/v1/admin/config/feature_flags",
+            headers=super_headers,
+            json={"open_registration_enabled": False},
+        )
+        assert restore.status_code == 200, restore.text
+
+    with SessionLocal() as db:
+        rows = list(
+            db.execute(
+                select(AuditLog).where(
+                    AuditLog.actor == f"admin:{super_admin.id}",
+                    AuditLog.action == "feature_flags.update",
+                    AuditLog.target_type == "feature_flags",
+                    AuditLog.target_id == "global",
+                )
+            )
+            .scalars()
+            .all()
+        )
+        assert len(rows) >= 1
+
+        saw = False
+        for row in rows:
+            try:
+                meta = cast(dict[str, object], json.loads(row.metadata_json))
+                ck = meta.get("changed_keys")
+                changed_keys = [k for k in ck if isinstance(k, str)] if isinstance(ck, list) else []
+                if "open_registration_enabled" in changed_keys:
+                    saw = True
+                    break
+            except Exception:
+                continue
+        assert saw is True
 
 
 def test_task_22_admin_flags_put_rejects_unknown_key_400() -> None:
