@@ -166,11 +166,12 @@ export async function adminLogin(payload: AdminLoginPayload): Promise<AdminLogin
 export type AdminFeatureFlags = {
   plugins_enabled?: boolean;
   invite_registration_enabled?: boolean;
+  open_registration_enabled?: boolean;
   [k: string]: unknown;
 };
 
 export type AdminFeatureFlagsUpdate = Partial<
-  Pick<AdminFeatureFlags, "plugins_enabled" | "invite_registration_enabled">
+  Pick<AdminFeatureFlags, "plugins_enabled" | "invite_registration_enabled" | "open_registration_enabled">
 >;
 
 export async function adminConfigGetFeatureFlags(): Promise<AdminFeatureFlags> {

@@ -8,6 +8,23 @@ import {
 } from "../lib/api";
 import { loadAdminSession } from "../lib/auth";
 
+function getRemotePluginsEnabled(flags: AdminFeatureFlags | null): boolean {
+  if (!flags) return false;
+  return Boolean(flags.plugins_enabled);
+}
+
+function getRemoteInviteRegistrationEnabled(flags: AdminFeatureFlags | null): boolean {
+  if (!flags) return true;
+  const v = flags.invite_registration_enabled;
+  return typeof v === "boolean" ? v : true;
+}
+
+function getRemoteOpenRegistrationEnabled(flags: AdminFeatureFlags | null): boolean {
+  if (!flags) return false;
+  const v = flags.open_registration_enabled;
+  return typeof v === "boolean" ? v : false;
+}
+
 export function FeatureFlagsPage() {
   const session = loadAdminSession();
   const canEdit = session?.role === "super_admin";
@@ -20,24 +37,19 @@ export function FeatureFlagsPage() {
   const [remoteFlags, setRemoteFlags] = useState<AdminFeatureFlags | null>(null);
   const [pluginsEnabled, setPluginsEnabled] = useState(false);
   const [inviteRegistrationEnabled, setInviteRegistrationEnabled] = useState(true);
-
-  function getRemotePluginsEnabled(flags: AdminFeatureFlags | null): boolean {
-    if (!flags) return false;
-    return Boolean(flags.plugins_enabled);
-  }
-
-  function getRemoteInviteRegistrationEnabled(flags: AdminFeatureFlags | null): boolean {
-    if (!flags) return true;
-    const v = flags.invite_registration_enabled;
-    return typeof v === "boolean" ? v : true;
-  }
+  const [openRegistrationEnabled, setOpenRegistrationEnabled] = useState(false);
 
   const dirty = useMemo(() => {
     if (!remoteFlags) return false;
     const remotePluginsEnabled = getRemotePluginsEnabled(remoteFlags);
     const remoteInviteEnabled = getRemoteInviteRegistrationEnabled(remoteFlags);
-    return pluginsEnabled !== remotePluginsEnabled || inviteRegistrationEnabled !== remoteInviteEnabled;
-  }, [inviteRegistrationEnabled, pluginsEnabled, remoteFlags]);
+    const remoteOpenEnabled = getRemoteOpenRegistrationEnabled(remoteFlags);
+    return (
+      pluginsEnabled !== remotePluginsEnabled ||
+      inviteRegistrationEnabled !== remoteInviteEnabled ||
+      openRegistrationEnabled !== remoteOpenEnabled
+    );
+  }, [inviteRegistrationEnabled, openRegistrationEnabled, pluginsEnabled, remoteFlags]);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +63,7 @@ export function FeatureFlagsPage() {
         setRemoteFlags(flags);
         setPluginsEnabled(Boolean(flags.plugins_enabled));
         setInviteRegistrationEnabled(getRemoteInviteRegistrationEnabled(flags));
+        setOpenRegistrationEnabled(getRemoteOpenRegistrationEnabled(flags));
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError) {
@@ -134,6 +147,41 @@ export function FeatureFlagsPage() {
 
         <div className="kv">
           <div className="kv-k">
+            开放注册开关 <code>open_registration_enabled</code>
+          </div>
+          <div className="kv-v">
+            <div className="row row--space">
+              <div>
+                <div className="muted">
+                  开启后允许无邀请码注册（但仍建议保留邀请码注册开关作为兼容）。
+                </div>
+                <div className="muted">
+                  注意：当 <code>invite_registration_enabled</code> 为 <code>false</code> 时，无论本开关如何，注册仍会被关闭。
+                </div>
+              </div>
+              <label className={canEdit ? "switch" : "switch switch--disabled"}>
+                <input
+                  type="checkbox"
+                  checked={openRegistrationEnabled}
+                  onChange={(e) => {
+                    setOpenRegistrationEnabled(e.target.checked);
+                    setSavedMsg(null);
+                  }}
+                  disabled={loading || saving || !canEdit || !remoteFlags}
+                />
+                <span className="switch-track" aria-hidden="true">
+                  <span className="switch-thumb" aria-hidden="true" />
+                </span>
+                <span className={openRegistrationEnabled ? "badge badge--ok" : "badge badge--off"}>
+                  {openRegistrationEnabled ? "ENABLED" : "DISABLED"}
+                </span>
+              </label>
+            </div>
+          </div>
+        </div>
+
+        <div className="kv">
+          <div className="kv-k">
             邀请码注册开关 <code>invite_registration_enabled</code>
           </div>
           <div className="kv-v">
@@ -185,6 +233,7 @@ export function FeatureFlagsPage() {
                 if (!remoteFlags) return;
                 setPluginsEnabled(getRemotePluginsEnabled(remoteFlags));
                 setInviteRegistrationEnabled(getRemoteInviteRegistrationEnabled(remoteFlags));
+                setOpenRegistrationEnabled(getRemoteOpenRegistrationEnabled(remoteFlags));
                 setSavedMsg(null);
                 setError(null);
               }}
@@ -200,10 +249,18 @@ export function FeatureFlagsPage() {
 
                 const remotePluginsEnabled = getRemotePluginsEnabled(remoteFlags);
                 const remoteInviteEnabled = getRemoteInviteRegistrationEnabled(remoteFlags);
-                const payload: { plugins_enabled?: boolean; invite_registration_enabled?: boolean } = {};
+                const remoteOpenEnabled = getRemoteOpenRegistrationEnabled(remoteFlags);
+                const payload: {
+                  plugins_enabled?: boolean;
+                  invite_registration_enabled?: boolean;
+                  open_registration_enabled?: boolean;
+                } = {};
                 if (pluginsEnabled !== remotePluginsEnabled) payload.plugins_enabled = pluginsEnabled;
                 if (inviteRegistrationEnabled !== remoteInviteEnabled) {
                   payload.invite_registration_enabled = inviteRegistrationEnabled;
+                }
+                if (openRegistrationEnabled !== remoteOpenEnabled) {
+                  payload.open_registration_enabled = openRegistrationEnabled;
                 }
                 if (Object.keys(payload).length === 0) return;
 
@@ -211,12 +268,13 @@ export function FeatureFlagsPage() {
                 setError(null);
                 setSavedMsg(null);
                 try {
-                  const next = await adminConfigPutFeatureFlags(payload);
-                  setRemoteFlags(next);
-                  setPluginsEnabled(Boolean(next.plugins_enabled));
-                  setInviteRegistrationEnabled(getRemoteInviteRegistrationEnabled(next));
-                  setSavedMsg("已保存");
-                } catch (err) {
+                   const next = await adminConfigPutFeatureFlags(payload);
+                   setRemoteFlags(next);
+                   setPluginsEnabled(Boolean(next.plugins_enabled));
+                   setInviteRegistrationEnabled(getRemoteInviteRegistrationEnabled(next));
+                   setOpenRegistrationEnabled(getRemoteOpenRegistrationEnabled(next));
+                   setSavedMsg("已保存");
+                 } catch (err) {
                   if (err instanceof ApiError) {
                     setError(err.message);
                   } else {
