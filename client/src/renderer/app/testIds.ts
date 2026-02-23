@@ -7,6 +7,7 @@ export const TEST_IDS = {
   loginError: 'login-error',
 
   registerEmail: 'register-email',
+  registerUsername: 'register-username',
   registerPassword: 'register-password',
   registerInviteCode: 'register-invite-code',
   registerSubmit: 'register-submit',
