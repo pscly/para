@@ -6,8 +6,8 @@ Operations:
 - retention: purge_old_audit_logs(retention_days=1)
 
 Audit logs (latest 8):
-- action=feature_flags.update target=feature_flags:global created_at=2026-02-22T11:23:02.934528 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
-- action=vision.screenshot target=save:0ffc2d99-9bb7-4c0f-a40e-ad07c38ca7ea created_at=2026-02-22T11:23:02.677604 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
+- action=feature_flags.update target=feature_flags:global created_at=2026-02-23T02:06:21.903785 meta_keys=['changed_keys', 'key', 'namespace', 'next', 'prev']
+- action=vision.screenshot target=save:200e0f95-14c1-45c1-aed3-461ac0ca3957 created_at=2026-02-23T02:06:21.687450 meta_keys=['bytes', 'emit_ws_event', 'height', 'privacy_mode', 'width']
 
 Redaction sample:
 - input contains: Authorization: Bearer ... + image_base64=... + data:image/...;base64,... + access_token/refresh_token
