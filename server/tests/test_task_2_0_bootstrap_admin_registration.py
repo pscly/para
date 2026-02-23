@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Barrier
@@ -39,13 +40,23 @@ def _admin_login(client: TestClient, *, email: str, password: str) -> dict[str, 
     return body
 
 
-def _set_invite_registration_enabled(*, enabled: bool) -> None:
+def _set_feature_flags(
+    *,
+    invite_registration_enabled: bool | None = None,
+    open_registration_enabled: bool | None = None,
+) -> None:
+    obj: dict[str, object] = {}
+    if invite_registration_enabled is not None:
+        obj["invite_registration_enabled"] = bool(invite_registration_enabled)
+    if open_registration_enabled is not None:
+        obj["open_registration_enabled"] = bool(open_registration_enabled)
+
     with SessionLocal() as db:
         row = AdminKV(
             namespace="feature_flags",
             key="global",
             value_json=json.dumps(
-                {"invite_registration_enabled": bool(enabled)},
+                obj,
                 ensure_ascii=True,
                 separators=(",", ":"),
                 sort_keys=True,
@@ -53,6 +64,10 @@ def _set_invite_registration_enabled(*, enabled: bool) -> None:
         )
         db.add(row)
         db.commit()
+
+
+def _set_invite_registration_enabled(*, enabled: bool) -> None:
+    _set_feature_flags(invite_registration_enabled=enabled)
 
 
 def _create_invite_code(*, raw_code: str, max_uses: int = 1) -> None:
@@ -84,6 +99,7 @@ def test_task_2_0_bootstrap_creates_user_and_admin_user_and_admin_login_works() 
     with SessionLocal() as db:
         u = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
         assert u is not None
+        assert isinstance(u.username, str) and re.fullmatch(r"[a-z0-9_]{3,32}", u.username)
         a = db.execute(select(AdminUser).where(AdminUser.email == email)).scalar_one_or_none()
         assert a is not None
         assert a.role == "super_admin"
@@ -117,6 +133,58 @@ def test_task_2_0_invite_registration_disabled_returns_registration_closed() -> 
         )
         assert r.status_code == 403, r.text
         assert cast(dict[str, object], r.json()).get("detail") == "registration_closed"
+
+
+def test_task_2_0_open_registration_allows_register_without_invite_after_bootstrap() -> None:
+    with TestClient(app) as client:
+        _ = _bootstrap_register(client, email=_random_email("u"), password="password123")
+
+    _set_feature_flags(invite_registration_enabled=True, open_registration_enabled=True)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/v1/auth/register",
+            json={"email": _random_email("u"), "password": "password123"},
+        )
+        assert r.status_code == 201, r.text
+
+
+def test_task_2_0_invite_registration_disabled_closes_registration_even_if_open_enabled() -> None:
+    with TestClient(app) as client:
+        _ = _bootstrap_register(client, email=_random_email("u"), password="password123")
+
+    _set_feature_flags(invite_registration_enabled=False, open_registration_enabled=True)
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/v1/auth/register",
+            json={"email": _random_email("u"), "password": "password123"},
+        )
+        assert r.status_code == 403, r.text
+        assert cast(dict[str, object], r.json()).get("detail") == "registration_closed"
+
+
+def test_task_2_0_username_taken_returns_username_taken() -> None:
+    email1 = _random_email("u")
+    pw = "password123"
+
+    with TestClient(app) as client:
+        _ = _bootstrap_register(client, email=email1, password=pw)
+
+    _set_feature_flags(invite_registration_enabled=True, open_registration_enabled=True)
+
+    with SessionLocal() as db:
+        u1 = db.execute(select(User).where(User.email == email1)).scalar_one()
+        assert isinstance(u1.username, str) and u1.username
+        uname = u1.username
+
+    with TestClient(app) as client:
+        r = client.post(
+            "/api/v1/auth/register",
+            json={"email": _random_email("u"), "password": pw, "username": uname},
+        )
+        assert r.status_code == 409, r.text
+        assert cast(dict[str, object], r.json()).get("detail") == "username_taken"
 
 
 def test_task_2_0_concurrent_bootstrap_only_one_succeeds() -> None:

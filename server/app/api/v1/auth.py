@@ -9,7 +9,9 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 import hashlib
 import json
+import re
 from typing import NoReturn, cast
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -54,10 +56,12 @@ class RegisterRequest(BaseModel):
     email: str = Field(..., examples=["user@example.com"])
     password: str = Field(..., min_length=8, examples=["password123"])
     invite_code: str | None = Field(None, examples=["ABCDEFGH1234"])
+    username: str | None = Field(None, examples=["alice_01"])
 
 
 class LoginRequest(BaseModel):
-    email: str = Field(..., examples=["user@example.com"])
+    identifier: str | None = Field(None, examples=["alice_01"])
+    email: str | None = Field(None, examples=["user@example.com"])
     password: str = Field(..., examples=["password123"])
 
 
@@ -159,6 +163,56 @@ def _invite_registration_enabled(db: Session) -> bool:
     if isinstance(v, bool):
         return v
     return True
+
+
+def _open_registration_enabled(db: Session) -> bool:
+    row = db.execute(
+        select(AdminKV).where(AdminKV.namespace == "feature_flags", AdminKV.key == "global")
+    ).scalar_one_or_none()
+    if row is None:
+        return False
+
+    loaded = _load_json_object(row.value_json)
+    v = loaded.get("open_registration_enabled")
+    if isinstance(v, bool):
+        return v
+    return False
+
+
+_USERNAME_RE = re.compile(r"^[a-z0-9_]{3,32}$")
+_USERNAME_ILLEGAL_RE = re.compile(r"[^a-z0-9_]+")
+_USERNAME_UNDERSCORES_RE = re.compile(r"_+")
+
+
+def _normalize_and_validate_username(raw: str | None) -> str | None:
+    if raw is None:
+        return None
+    v = raw.strip()
+    if v == "":
+        return None
+    v = v.lower()
+    if _USERNAME_RE.fullmatch(v) is None:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="username_invalid")
+    return v
+
+
+def _generate_username_from_email(email: str) -> str:
+    local = email.split("@", 1)[0].strip().lower()
+    local = _USERNAME_ILLEGAL_RE.sub("_", local)
+    local = _USERNAME_UNDERSCORES_RE.sub("_", local).strip("_")
+    local = local[:32].strip("_")
+    if len(local) < 3:
+        return ""
+    if _USERNAME_RE.fullmatch(local) is None:
+        return ""
+    return local
+
+
+def _fallback_username_from_user_id(user_id: str, *, take: int = 12) -> str:
+    raw = user_id.replace("-", "")
+    max_take = 32 - len("user_")
+    t = min(max_take, max(1, int(take)))
+    return f"user_{raw[:t]}"
 
 
 def _acquire_bootstrap_lock(db: Session) -> None:
@@ -298,11 +352,47 @@ async def register(
         _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
-    now = datetime.utcnow()
-    reserved_invite: InviteCode | None = None
-    if not is_bootstrap and invite_raw == "":
+    if not is_bootstrap and invite_raw == "" and not _open_registration_enabled(db):
         _maybe_record_failure(db, limiter, key=key)
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="invite_code_required")
+
+    user_id = str(uuid4())
+    try:
+        requested_username = _normalize_and_validate_username(payload.username)
+    except HTTPException:
+        _maybe_record_failure(db, limiter, key=key)
+        raise
+
+    username: str
+    if requested_username is not None:
+        exists = db.execute(
+            select(User.id).where(User.username == requested_username).limit(1)
+        ).scalar_one_or_none()
+        if exists is not None:
+            _maybe_record_failure(db, limiter, key=key)
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username_taken")
+        username = requested_username
+    else:
+        candidate = _generate_username_from_email(email)
+        if candidate != "":
+            taken = db.execute(
+                select(User.id).where(User.username == candidate).limit(1)
+            ).scalar_one_or_none()
+            if taken is None:
+                username = candidate
+            else:
+                username = _fallback_username_from_user_id(user_id, take=12)
+        else:
+            username = _fallback_username_from_user_id(user_id, take=12)
+
+        taken2 = db.execute(
+            select(User.id).where(User.username == username).limit(1)
+        ).scalar_one_or_none()
+        if taken2 is not None:
+            username = _fallback_username_from_user_id(user_id, take=27)
+
+    now = datetime.utcnow()
+    reserved_invite: InviteCode | None = None
     if invite_raw != "":
         reserved_invite = _reserve_invite_for_registration(
             db,
@@ -314,13 +404,25 @@ async def register(
 
     pw_hash = hash_password(payload.password)
 
-    user = User(email=email, password_hash=pw_hash)
+    user = User(id=user_id, email=email, username=username, password_hash=pw_hash)
     db.add(user)
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
         _maybe_record_failure(db, limiter, key=key)
+        try:
+            if (
+                db.execute(
+                    select(User.id).where(User.username == username).limit(1)
+                ).scalar_one_or_none()
+                is not None
+            ):
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="username_taken")
+        except HTTPException:
+            raise
+        except Exception:
+            pass
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Email already exists")
 
     if is_bootstrap:
@@ -372,9 +474,33 @@ async def register(
 async def login(
     payload: LoginRequest, request: Request, db: Session = Depends(get_db)
 ) -> TokenPair:
-    email = normalize_email(payload.email)
+    raw_identifier: str | None
+    if isinstance(payload.identifier, str) and payload.identifier.strip() != "":
+        raw_identifier = payload.identifier
+    else:
+        raw_identifier = payload.email
+
+    if raw_identifier is None or raw_identifier.strip() == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="identifier_required",
+        )
+
+    raw_identifier = raw_identifier.strip()
+
+    identifier_kind: str
+    effective_identifier: str
+    if "@" in raw_identifier:
+        identifier_kind = "email"
+        effective_identifier = normalize_email(raw_identifier)
+    else:
+        identifier_kind = "username"
+        effective_identifier = raw_identifier.lower()
+
     limiter = _rate_limiter()
-    key = auth_rate_limit_key(scope="auth_login", ip=_client_ip(request), identifier=email)
+    key = auth_rate_limit_key(
+        scope="auth_login", ip=_client_ip(request), identifier=effective_identifier
+    )
     try:
         check = limiter.check(db, key=key)
         if check.blocked:
@@ -384,7 +510,18 @@ async def login(
     except Exception:
         pass
 
-    user = db.execute(select(User).where(User.email == email)).scalar_one_or_none()
+    if identifier_kind == "email":
+        user = (
+            db.execute(select(User).where(User.email == effective_identifier))
+            .scalars()
+            .one_or_none()
+        )
+    else:
+        user = (
+            db.execute(select(User).where(User.username == effective_identifier))
+            .scalars()
+            .one_or_none()
+        )
     if user is None or not verify_password(payload.password, user.password_hash):
         _maybe_record_failure(db, limiter, key=key)
         _unauthorized("Bad credentials")

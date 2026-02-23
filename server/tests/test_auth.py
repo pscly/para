@@ -122,6 +122,30 @@ def test_login_wrong_password_returns_401() -> None:
         assert bad.status_code == 401, bad.text
 
 
+def test_login_identifier_username_returns_200() -> None:
+    email = _random_email()
+    password = "password123"
+
+    with TestClient(app) as client:
+        _ = _register(client, email=email, password=password)
+
+        with SessionLocal() as db:
+            user = db.execute(select(User).where(User.email == email)).scalar_one()
+            username = user.username
+
+        assert isinstance(username, str)
+        assert username
+
+        ok = client.post(
+            "/api/v1/auth/login",
+            json={"identifier": username, "password": password},
+        )
+        assert ok.status_code == 200, ok.text
+        data = cast(TokenPair, ok.json())
+        assert "access_token" in data
+        assert "refresh_token" in data
+
+
 def test_refresh_rotates_old_becomes_invalid_and_new_works() -> None:
     email = _random_email()
     password = "password123"
