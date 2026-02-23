@@ -1,0 +1,21 @@
+F3 Windows smoke（桌宠可交互 + 拖拽 + 位置记忆）验证步骤
+
+目标
+- 验证桌宠窗口不会出现“巨大不可交互覆盖层”
+- 验证 pet 窗口可点击（pet-sprite 可打开菜单）
+- 验证拖拽把手可移动窗口（bounds 发生变化）
+- 验证同一 profile 重启后位置可恢复（para.ui.json 生效）
+
+自动化（推荐：Playwright Electron）
+1) 在项目根目录执行：
+   npm -C client run e2e -- electron-smoke.spec.ts electron-pet-ui.spec.ts
+
+预期
+- electron-smoke / electron-pet-ui 通过
+- 生成/更新证据截图：.sisyphus/evidence/task-14-pet.png
+
+手工（兜底）
+1) 启动桌面端（开发构建或安装包均可）
+2) 观察桌宠窗口：应可点击；点击桌宠主体应弹出菜单
+3) 用“拖拽把手”（底部小把手区域）拖动桌宠，松手后重启应用
+4) 重启后桌宠位置应基本保持（若显示器变化，启动时应被 clamp 回可视区域）
