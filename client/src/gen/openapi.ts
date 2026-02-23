@@ -1554,7 +1554,12 @@ export interface components {
              * Email
              * @example user@example.com
              */
-            email: string;
+            email?: string | null;
+            /**
+             * Identifier
+             * @example alice_01
+             */
+            identifier?: string | null;
             /**
              * Password
              * @example password123
@@ -1820,6 +1825,11 @@ export interface components {
              * @example password123
              */
             password: string;
+            /**
+             * Username
+             * @example alice_01
+             */
+            username?: string | null;
         };
         /** ReviewNoteRequest */
         ReviewNoteRequest: {

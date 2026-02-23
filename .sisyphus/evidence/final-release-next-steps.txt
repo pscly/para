@@ -1,0 +1,24 @@
+Release 准备（本次仅预检；commit/push/tag 需用户确认）
+
+已完成
+- 版本一致性预检：python scripts/sync_versions.py --check（exit 0）
+
+如需实际发布（建议流程）
+1) 先确保 CI 本地全绿（可选但推荐）
+   ./scripts/ci.sh
+
+2) 对齐版本并导出 OpenAPI（会修改仓库文件，需提交）
+   python scripts/sync_versions.py --write --export-openapi --version 0.x.y
+
+3) 生成客户端 API（如项目约定要求；有些 repo 用 generate-contracts 脚本统一做）
+   ./scripts/generate-contracts.sh
+   或：cd client && npm run gen:api
+
+4) 提交（按目录拆分：server / admin-web / client / tests / evidence）
+
+5) 打 tag 并 push（触发 release workflow）
+   git tag v0.x.y
+   git push --tags
+
+6) 验收 Release assets（Windows 安装包 + .sha256）
+   gh release view v0.x.y

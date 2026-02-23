@@ -1,7 +1,7 @@
 {
   "name": "ai-girlfriend-client",
   "private": true,
-  "version": "0.1.11",
+  "version": "0.2.0",
   "description": "Electron + React + TS client scaffold",
   "homepage": "https://para.pscly.cc",
   "author": {
