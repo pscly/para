@@ -25,7 +25,7 @@ from sqlalchemy import (
     false,
 )
 from sqlalchemy.dialects.postgresql import JSONB
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 from sqlalchemy.types import UserDefinedType
 from sqlalchemy.engine.interfaces import Dialect
 
@@ -90,6 +90,7 @@ class User(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_uuid_str)
     email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
+    username: Mapped[str | None] = mapped_column(String(32), index=True, nullable=True)
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(), default=datetime.utcnow, nullable=False
@@ -98,6 +99,13 @@ class User(Base):
     debug_allowed: Mapped[bool] = mapped_column(
         Boolean(), nullable=False, default=False, server_default=false()
     )
+
+    @validates("username")
+    def _normalize_username(self, _key: str, value: str | None) -> str | None:
+        if value is None:
+            return None
+        v = value.strip().lower()
+        return v or None
 
     devices: Mapped[list["Device"]] = relationship(
         "Device",
