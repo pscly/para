@@ -346,7 +346,7 @@ export function ChatPage() {
 
     const ws = api?.ws;
     if (!ws?.interrupt) {
-      setChatMeta('Stop 不可用');
+      setChatMeta('停止不可用');
       return;
     }
 
@@ -371,7 +371,7 @@ export function ChatPage() {
     <AppShell>
       <div className="ui-shell__content">
         <Card as="main">
-          <h2>Chat</h2>
+          <h2>聊天</h2>
 
           <div style={{ color: 'var(--muted)', fontSize: 13, marginBottom: 12 }}>
             {authLabel}
@@ -403,10 +403,10 @@ export function ChatPage() {
                 onClick={onChatStop}
                 disabled={!chatBusy}
               >
-                Stop
+                停止
               </Button>
               <Button data-testid={TEST_IDS.chatSend} type="submit" disabled={chatBusy}>
-                Send
+                发送
               </Button>
             </div>
 
