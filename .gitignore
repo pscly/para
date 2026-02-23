@@ -22,6 +22,7 @@ client/test-results/
 client/playwright-report/
 
 # Local Sisyphus scratchpads (keep evidence tracked)
+.sisyphus/boulder.json
 .sisyphus/drafts/
 .sisyphus/notepads/
 .sisyphus/plans/
